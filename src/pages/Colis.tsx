@@ -367,7 +367,7 @@ function ErreursRemise() {
     setLoading(true)
     const { data } = await supabase
       .from('colis_erreurs_remise')
-      .select('*, profiles(full_name)')
+      .select('*, profiles!signale_par(full_name)')
       .order('resolu', { ascending: true })
       .order('signale_le', { ascending: false })
     setErreurs((data as ColisErreurRemise[]) ?? [])

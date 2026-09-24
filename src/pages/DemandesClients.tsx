@@ -19,7 +19,7 @@ export default function DemandesClients() {
     setLoading(true)
     const { data } = await supabase
       .from('demandes_clients')
-      .select('*, profiles(full_name)')
+      .select('*, profiles!demandee_par(full_name)')
       .order('traitee', { ascending: true })
       .order('demandee_le', { ascending: false })
     setDemandes((data as DemandeClient[]) ?? [])
