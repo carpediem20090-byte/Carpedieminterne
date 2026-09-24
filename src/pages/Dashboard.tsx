@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { supabase, type ColisErreurRemise, type ReleveMessage } from '../lib/supabase'
+import {
+  supabase,
+  type ColisErreurRemise,
+  type CommandeFournisseur,
+  type DemandeClient,
+  type ReleveMessage,
+} from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Dashboard() {
   const { profile } = useAuth()
   const [dernieresReleves, setDernieresReleves] = useState<ReleveMessage[]>([])
   const [erreursEnCours, setErreursEnCours] = useState<ColisErreurRemise[]>([])
+  const [commandesEnAttente, setCommandesEnAttente] = useState<CommandeFournisseur[]>([])
+  const [demandesEnAttente, setDemandesEnAttente] = useState<DemandeClient[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function charger() {
-      const [releve, erreurs] = await Promise.all([
+      const [releve, erreurs, commandes, demandes] = await Promise.all([
         supabase
           .from('releve')
           .select('*, profiles(full_name)')
@@ -22,9 +30,21 @@ export default function Dashboard() {
           .select('*, profiles(full_name)')
           .eq('resolu', false)
           .order('signale_le', { ascending: false }),
+        supabase
+          .from('commandes_fournisseurs')
+          .select('*')
+          .eq('statut', 'en_attente')
+          .order('date_commande', { ascending: false }),
+        supabase
+          .from('demandes_clients')
+          .select('*')
+          .eq('traitee', false)
+          .order('demandee_le', { ascending: false }),
       ])
       setDernieresReleves((releve.data as ReleveMessage[]) ?? [])
       setErreursEnCours((erreurs.data as ColisErreurRemise[]) ?? [])
+      setCommandesEnAttente((commandes.data as CommandeFournisseur[]) ?? [])
+      setDemandesEnAttente((demandes.data as DemandeClient[]) ?? [])
       setLoading(false)
     }
     charger()
@@ -85,6 +105,28 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {commandesEnAttente.length > 0 && (
+        <Link to="/commandes" className="block bg-laiton/15 rounded-2xl p-4 shadow-sm">
+          <p className="font-medium text-encre">
+            🚚 {commandesEnAttente.length} commande{commandesEnAttente.length > 1 ? 's' : ''} fournisseur en
+            attente
+          </p>
+          <p className="text-sm text-encre/70 mt-1">
+            {commandesEnAttente[0].fournisseur} — {commandesEnAttente[0].produits}
+          </p>
+        </Link>
+      )}
+
+      {demandesEnAttente.length > 0 && (
+        <Link to="/demandes" className="block bg-havane/10 rounded-2xl p-4 shadow-sm">
+          <p className="font-medium text-encre">
+            💬 {demandesEnAttente.length} demande{demandesEnAttente.length > 1 ? 's' : ''} client
+            {demandesEnAttente.length > 1 ? 's' : ''} à traiter
+          </p>
+          <p className="text-sm text-encre/70 mt-1">{demandesEnAttente[0].description}</p>
+        </Link>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <Link to="/colis" className="bg-white rounded-2xl shadow-sm p-4 text-center">
           <span className="text-2xl">📦</span>
@@ -95,6 +137,13 @@ export default function Dashboard() {
           <p className="text-sm font-medium mt-1">Relève</p>
         </Link>
       </div>
+
+      <Link
+        to="/plus"
+        className="block bg-white rounded-2xl shadow-sm p-4 text-center text-sm font-medium text-havane"
+      >
+        ➕ Voir tous les outils
+      </Link>
     </div>
   )
 }

@@ -5,6 +5,15 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Releve from './pages/Releve'
 import Colis from './pages/Colis'
+import Commandes from './pages/Commandes'
+import Factures from './pages/Factures'
+import Stock from './pages/Stock'
+import Contacts from './pages/Contacts'
+import DemandesClients from './pages/DemandesClients'
+import Planning from './pages/Planning'
+import ProduitsBooster from './pages/ProduitsBooster'
+import Actus from './pages/Actus'
+import Plus from './pages/Plus'
 
 function PrivateArea() {
   const { session, loading } = useAuth()
@@ -27,6 +36,15 @@ function PrivateArea() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/releve" element={<Releve />} />
         <Route path="/colis" element={<Colis />} />
+        <Route path="/commandes" element={<Commandes />} />
+        <Route path="/factures" element={<Factures />} />
+        <Route path="/stock" element={<Stock />} />
+        <Route path="/contacts" element={<Contacts />} />
+        <Route path="/demandes" element={<DemandesClients />} />
+        <Route path="/planning" element={<Planning />} />
+        <Route path="/booster" element={<ProduitsBooster />} />
+        <Route path="/actus" element={<Actus />} />
+        <Route path="/plus" element={<Plus />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

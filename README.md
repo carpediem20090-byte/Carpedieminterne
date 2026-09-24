@@ -1,13 +1,24 @@
 # Carpe Diem — Gestion interne
 
-Application interne du tabac Carpe Diem : relève quotidienne et suivi des colis clients (point relais), pour l'instant. D'autres modules (commandes fournisseurs, planning, stock…) viendront s'ajouter par la suite.
+Application interne du tabac Carpe Diem : relève quotidienne, colis clients (point relais), commandes fournisseurs et factures, pour l'instant. D'autres modules (planning, stock, produits à booster…) viendront s'ajouter par la suite.
 
-## Ce qui est fait dans cette première version
+## Ce qui est fait pour l'instant
 
 - Connexion par compte individuel (un compte par personne)
 - **Relève** : fil d'infos du jour, tout le monde peut écrire et lire
 - **Colis clients** : enregistrement des réceptions (transporteur, vrac/sac/retours) + signalement des erreurs de remise
-- Tableau de bord d'accueil qui regroupe les dernières infos et les erreurs à traiter
+- **Commandes fournisseurs** : création d'une commande par fournisseur, réception avec photo du colis + photo de la facture et nom de la personne qui a réceptionné
+- **Factures** : upload d'un PDF ou d'une photo, fournisseur/montant/date renseignés à la main pour l'instant (voir note plus bas), liste filtrable par fournisseur, téléchargement pour la compta
+- Tableau de bord d'accueil qui regroupe les dernières infos, les erreurs à traiter et les commandes en attente
+
+### Note sur les factures
+
+Pour l'instant, le fournisseur/montant/date d'une facture se saisissent à la
+main lors de l'upload (2-3 champs rapides). La reconnaissance automatique du
+contenu du PDF/photo (comme évoqué au départ) demandera une petite fonction
+côté serveur qui appelle un modèle pour lire le document — c'est une suite
+logique qu'on peut construire ensuite une fois que le reste est validé en
+usage réel.
 
 ## Mise en route (à faire une seule fois)
 
@@ -16,7 +27,9 @@ Application interne du tabac Carpe Diem : relève quotidienne et suivi des colis
 1. Aller sur [supabase.com](https://supabase.com) et créer un compte gratuit
 2. Créer un nouveau projet (choisir une région proche, ex. Europe)
 3. Une fois le projet créé, aller dans **SQL Editor**, coller le contenu du fichier
-   `supabase/migrations/0001_init.sql` et l'exécuter — ça crée toutes les tables
+   `supabase/migrations/0001_init.sql` et l'exécuter, puis faire la même chose avec
+   `supabase/migrations/0002_commandes_factures.sql` — ça crée toutes les tables
+   (l'ordre compte : 0001 avant 0002)
 4. Aller dans **Project Settings → API** et noter :
    - `Project URL`
    - `anon public` key

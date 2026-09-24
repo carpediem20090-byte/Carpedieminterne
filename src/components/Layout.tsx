@@ -5,6 +5,7 @@ const tabs = [
   { to: '/', label: 'Accueil', icon: '🏠', end: true },
   { to: '/releve', label: 'Relève', icon: '📋' },
   { to: '/colis', label: 'Colis', icon: '📦' },
+  { to: '/plus', label: 'Plus', icon: '➕' },
 ]
 
 export default function Layout() {
@@ -33,12 +34,12 @@ export default function Layout() {
             to={tab.to}
             end={tab.end}
             className={({ isActive }) =>
-              `flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs font-medium ${
+              `flex-1 flex flex-col items-center gap-0.5 py-2 text-[10px] leading-tight font-medium px-0.5 ${
                 isActive ? 'text-havane' : 'text-encre/50'
               }`
             }
           >
-            <span className="text-xl leading-none">{tab.icon}</span>
+            <span className="text-lg leading-none">{tab.icon}</span>
             {tab.label}
           </NavLink>
         ))}
