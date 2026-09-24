@@ -35,24 +35,43 @@ function joursDeLaSemaine(lundi: Date) {
   })
 }
 
+function joursDansMois(moisStr: string) {
+  const [annee, m] = moisStr.split('-').map(Number)
+  return new Date(annee, m, 0).getDate()
+}
+
+const LETTRES_JOURS = ['L', 'M', 'M', 'J', 'V', 'S', 'D']
+
+function lettreJour(moisStr: string, jour: number) {
+  const [annee, m] = moisStr.split('-').map(Number)
+  const d = new Date(annee, m - 1, jour)
+  const idx = d.getDay() === 0 ? 6 : d.getDay() - 1
+  return LETTRES_JOURS[idx]
+}
+
+const PRESETS_HORAIRE = [
+  { label: 'Matin', debut: '07:00', fin: '13:00' },
+  { label: 'Après-midi', debut: '13:00', fin: '20:00' },
+  { label: 'Journée', debut: '07:00', fin: '20:00' },
+]
+
+function formatHeureCourte(t: string) {
+  const [h, m] = t.slice(0, 5).split(':')
+  return m === '00' ? `${Number(h)}h` : `${Number(h)}h${m}`
+}
+
 export default function Planning() {
   const { profile, estPatron } = useAuth()
 
   // Profils (utile partout)
   const [profils, setProfils] = useState<Profile[]>([])
 
-  // Horaires de la semaine
-  const [lundi, setLundi] = useState(() => lundiDeSemaine(new Date()))
+  // Horaires du mois (calendrier)
+  const [moisHoraires, setMoisHoraires] = useState(moisActuel())
   const [horaires, setHoraires] = useState<HoraireTravail[]>([])
   const [loadingHoraires, setLoadingHoraires] = useState(true)
-  const [jourFormulaire, setJourFormulaire] = useState<string | null>(null)
-  const [horaireEnEdition, setHoraireEnEdition] = useState<string | null>(null)
-  const [formHoraire, setFormHoraire] = useState({
-    profilId: '',
-    heureDebut: '',
-    heureFin: '',
-    notes: '',
-  })
+  const [celluleEnEdition, setCelluleEnEdition] = useState<{ jour: number; profilId: string } | null>(null)
+  const [formCell, setFormCell] = useState({ heureDebut: '', heureFin: '', notes: '' })
   const [envoiHoraire, setEnvoiHoraire] = useState(false)
 
   // Demandes de changement d'horaire
@@ -91,13 +110,11 @@ export default function Planning() {
 
   async function chargerHoraires() {
     setLoadingHoraires(true)
-    const debut = toISODate(lundi)
-    const finDate = new Date(lundi)
-    finDate.setDate(finDate.getDate() + 6)
-    const fin = toISODate(finDate)
+    const debut = `${moisHoraires}-01`
+    const fin = `${moisHoraires}-${String(joursDansMois(moisHoraires)).padStart(2, '0')}`
     const { data } = await supabase
       .from('horaires_travail')
-      .select('*, profiles(full_name)')
+      .select('*, profiles!profil_id(full_name)')
       .gte('jour', debut)
       .lte('jour', fin)
       .order('heure_debut', { ascending: true })
@@ -137,62 +154,77 @@ export default function Planning() {
 
   useEffect(() => {
     chargerHoraires()
-  }, [lundi])
+  }, [moisHoraires])
 
   useEffect(() => {
     if (estPatron) chargerHeures()
   }, [mois, estPatron])
 
-  // --- Horaires de la semaine ---
+  // --- Horaires du mois (calendrier) ---
 
-  function ouvrirFormulaireJour(jour: string) {
-    setFormHoraire({ profilId: profils[0]?.id ?? '', heureDebut: '', heureFin: '', notes: '' })
-    setHoraireEnEdition(null)
-    setJourFormulaire(jourFormulaire === jour ? null : jour)
+  function jourISOduMois(jour: number) {
+    return `${moisHoraires}-${String(jour).padStart(2, '0')}`
   }
 
-  function ouvrirEditionHoraire(h: HoraireTravail) {
-    setFormHoraire({
-      profilId: h.profil_id,
-      heureDebut: h.heure_debut.slice(0, 5),
-      heureFin: h.heure_fin.slice(0, 5),
-      notes: h.notes ?? '',
+  function horaireCellule(jour: number, profilId: string) {
+    const iso = jourISOduMois(jour)
+    return horaires.find((h) => h.jour === iso && h.profil_id === profilId)
+  }
+
+  function ouvrirCellule(jour: number, profilId: string) {
+    if (!estPatron) return
+    if (celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === profilId) {
+      setCelluleEnEdition(null)
+      return
+    }
+    const existant = horaireCellule(jour, profilId)
+    setFormCell({
+      heureDebut: existant ? existant.heure_debut.slice(0, 5) : '',
+      heureFin: existant ? existant.heure_fin.slice(0, 5) : '',
+      notes: existant?.notes ?? '',
     })
-    setHoraireEnEdition(h.id)
-    setJourFormulaire(h.jour)
+    setCelluleEnEdition({ jour, profilId })
   }
 
-  async function enregistrerHoraire(jour: string) {
-    if (!formHoraire.profilId || !formHoraire.heureDebut || !formHoraire.heureFin || !profile) return
+  function appliquerPreset(debut: string, fin: string) {
+    setFormCell((f) => ({ ...f, heureDebut: debut, heureFin: fin }))
+  }
+
+  async function enregistrerCellule() {
+    if (!celluleEnEdition || !formCell.heureDebut || !formCell.heureFin || !profile) return
     setEnvoiHoraire(true)
-    if (horaireEnEdition) {
+    const existant = horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId)
+    if (existant) {
       await supabase
         .from('horaires_travail')
         .update({
-          profil_id: formHoraire.profilId,
-          heure_debut: formHoraire.heureDebut,
-          heure_fin: formHoraire.heureFin,
-          notes: formHoraire.notes.trim() || null,
+          heure_debut: formCell.heureDebut,
+          heure_fin: formCell.heureFin,
+          notes: formCell.notes.trim() || null,
         })
-        .eq('id', horaireEnEdition)
+        .eq('id', existant.id)
     } else {
       await supabase.from('horaires_travail').insert({
-        profil_id: formHoraire.profilId,
-        jour,
-        heure_debut: formHoraire.heureDebut,
-        heure_fin: formHoraire.heureFin,
-        notes: formHoraire.notes.trim() || null,
+        profil_id: celluleEnEdition.profilId,
+        jour: jourISOduMois(celluleEnEdition.jour),
+        heure_debut: formCell.heureDebut,
+        heure_fin: formCell.heureFin,
+        notes: formCell.notes.trim() || null,
         cree_par: profile.id,
       })
     }
     setEnvoiHoraire(false)
-    setJourFormulaire(null)
-    setHoraireEnEdition(null)
+    setCelluleEnEdition(null)
     chargerHoraires()
   }
 
-  async function supprimerHoraire(id: string) {
-    await supabase.from('horaires_travail').delete().eq('id', id)
+  async function supprimerCellule() {
+    if (!celluleEnEdition) return
+    const existant = horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId)
+    if (existant) {
+      await supabase.from('horaires_travail').delete().eq('id', existant.id)
+    }
+    setCelluleEnEdition(null)
     chargerHoraires()
   }
 
@@ -308,134 +340,145 @@ export default function Planning() {
         <p className="text-sm text-encre/60">Horaires de l'équipe, congés, repos et heures du mois.</p>
       </div>
 
-      {/* Horaires de la semaine */}
+      {/* Horaires du mois — calendrier */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-medium text-sm text-encre/80">Horaires de la semaine</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setLundi(new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() - 7))}
-              className="text-havane px-1"
-            >
-              ←
-            </button>
-            <span className="text-xs text-encre/60 whitespace-nowrap">
-              {formatDateCourte(toISODate(lundi))} – {formatDateCourte(toISODate(new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() + 6)))}
-            </span>
-            <button
-              onClick={() => setLundi(new Date(lundi.getFullYear(), lundi.getMonth(), lundi.getDate() + 7))}
-              className="text-havane px-1"
-            >
-              →
-            </button>
-          </div>
+          <h2 className="font-medium text-sm text-encre/80">Horaires du mois</h2>
+          <input
+            type="month"
+            value={moisHoraires}
+            onChange={(e) => {
+              setMoisHoraires(e.target.value)
+              setCelluleEnEdition(null)
+            }}
+            className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+          />
         </div>
 
         {loadingHoraires && <p className="text-sm text-encre/50">Chargement…</p>}
+        {!loadingHoraires && profils.length === 0 && (
+          <p className="text-sm text-encre/50">Aucun profil pour le moment.</p>
+        )}
 
-        <div className="space-y-2">
-          {joursDeLaSemaine(lundi).map((jourDate) => {
-            const jourISO = toISODate(jourDate)
-            const horairesJour = horaires.filter((h) => h.jour === jourISO)
-            const formOuvert = jourFormulaire === jourISO
-
-            return (
-              <div key={jourISO} className="bg-white rounded-xl shadow-sm p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium capitalize">{formatJourComplet(jourDate)}</p>
-                  {estPatron && (
-                    <button
-                      onClick={() => ouvrirFormulaireJour(jourISO)}
-                      className="text-xs font-medium text-havane underline"
+        {!loadingHoraires && profils.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+            <table className="border-collapse text-xs">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-white px-2 py-2 text-left font-medium text-encre/60 border-b border-gray-100">
+                    Jour
+                  </th>
+                  {profils.map((p) => (
+                    <th
+                      key={p.id}
+                      className="px-2 py-2 font-medium text-encre/80 border-b border-gray-100 whitespace-nowrap"
                     >
-                      {formOuvert && !horaireEnEdition ? 'Fermer' : '+ Ajouter'}
-                    </button>
-                  )}
-                </div>
-
-                {horairesJour.length === 0 && !formOuvert && (
-                  <p className="text-xs text-encre/40 mt-1">Personne de prévu</p>
-                )}
-
-                <div className="mt-2 space-y-1.5">
-                  {horairesJour.map((h) => (
-                    <button
-                      key={h.id}
-                      onClick={() => estPatron && ouvrirEditionHoraire(h)}
-                      disabled={!estPatron}
-                      className="w-full flex items-center justify-between bg-creme rounded-lg px-2.5 py-1.5 text-left"
-                    >
-                      <span className="text-sm">
-                        <span className="font-medium">{h.profiles?.full_name ?? '—'}</span>{' '}
-                        <span className="text-encre/60">
-                          {h.heure_debut.slice(0, 5)}–{h.heure_fin.slice(0, 5)}
-                        </span>
-                      </span>
-                      {estPatron && <span className="text-xs text-havane">Modifier</span>}
-                    </button>
+                      {p.full_name.split(' ')[0]}
+                    </th>
                   ))}
-                </div>
+                </tr>
+              </thead>
+              <tbody>
+                {Array.from({ length: joursDansMois(moisHoraires) }, (_, i) => i + 1).map((jour) => (
+                  <tr key={jour} className="border-b border-gray-50 last:border-0">
+                    <td className="sticky left-0 bg-white px-2 py-1.5 whitespace-nowrap text-encre/70">
+                      <span className="font-medium">{jour}</span>{' '}
+                      <span className="text-encre/40">{lettreJour(moisHoraires, jour)}</span>
+                    </td>
+                    {profils.map((p) => {
+                      const h = horaireCellule(jour, p.id)
+                      const selectionnee = celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === p.id
+                      return (
+                        <td key={p.id} className="px-1 py-1 text-center">
+                          <button
+                            onClick={() => ouvrirCellule(jour, p.id)}
+                            disabled={!estPatron}
+                            className={`w-full min-w-[52px] rounded-md px-1 py-1 ${
+                              selectionnee
+                                ? 'bg-havane text-white'
+                                : h
+                                ? 'bg-creme text-encre/80'
+                                : 'text-encre/25'
+                            }`}
+                          >
+                            {h ? `${formatHeureCourte(h.heure_debut)}-${formatHeureCourte(h.heure_fin)}` : '—'}
+                          </button>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-                {formOuvert && estPatron && (
-                  <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
-                    <select
-                      value={formHoraire.profilId}
-                      onChange={(e) => setFormHoraire({ ...formHoraire, profilId: e.target.value })}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-                    >
-                      {profils.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.full_name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="time"
-                        value={formHoraire.heureDebut}
-                        onChange={(e) => setFormHoraire({ ...formHoraire, heureDebut: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-                      />
-                      <input
-                        type="time"
-                        value={formHoraire.heureFin}
-                        onChange={(e) => setFormHoraire({ ...formHoraire, heureFin: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-                      />
-                    </div>
-                    <input
-                      value={formHoraire.notes}
-                      onChange={(e) => setFormHoraire({ ...formHoraire, notes: e.target.value })}
-                      placeholder="Notes (optionnel)"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => enregistrerHoraire(jourISO)}
-                        disabled={envoiHoraire || !formHoraire.profilId || !formHoraire.heureDebut || !formHoraire.heureFin}
-                        className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
-                      >
-                        {envoiHoraire ? 'Enregistrement…' : horaireEnEdition ? 'Modifier' : 'Ajouter'}
-                      </button>
-                      {horaireEnEdition && (
-                        <button
-                          onClick={() => {
-                            supprimerHoraire(horaireEnEdition)
-                            setJourFormulaire(null)
-                            setHoraireEnEdition(null)
-                          }}
-                          className="px-3 rounded-lg border border-corail text-corail text-sm font-medium"
-                        >
-                          Suppr.
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        {celluleEnEdition && estPatron && (
+          <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+            <p className="text-sm font-medium">
+              {profils.find((p) => p.id === celluleEnEdition.profilId)?.full_name} —{' '}
+              {formatDateCourte(jourISOduMois(celluleEnEdition.jour))}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {PRESETS_HORAIRE.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={() => appliquerPreset(preset.debut, preset.fin)}
+                  className={`text-xs font-medium rounded-full px-3 py-1.5 border ${
+                    formCell.heureDebut === preset.debut && formCell.heureFin === preset.fin
+                      ? 'bg-havane text-white border-havane'
+                      : 'border-gray-300 text-encre/70'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                type="time"
+                value={formCell.heureDebut}
+                onChange={(e) => setFormCell({ ...formCell, heureDebut: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+              />
+              <input
+                type="time"
+                value={formCell.heureFin}
+                onChange={(e) => setFormCell({ ...formCell, heureFin: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+              />
+            </div>
+            <input
+              value={formCell.notes}
+              onChange={(e) => setFormCell({ ...formCell, notes: e.target.value })}
+              placeholder="Notes (optionnel)"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={enregistrerCellule}
+                disabled={envoiHoraire || !formCell.heureDebut || !formCell.heureFin}
+                className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {envoiHoraire ? 'Enregistrement…' : 'Enregistrer'}
+              </button>
+              {horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId) && (
+                <button
+                  onClick={supprimerCellule}
+                  className="px-3 rounded-lg border border-corail text-corail text-sm font-medium"
+                >
+                  Repos / Suppr.
+                </button>
+              )}
+              <button
+                onClick={() => setCelluleEnEdition(null)}
+                className="px-3 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
+              >
+                Fermer
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Demandes de changement d'horaire */}
