@@ -96,7 +96,11 @@ export default function Planning() {
   const [moisHoraires, setMoisHoraires] = useState(moisActuel())
   const [horaires, setHoraires] = useState<HoraireTravail[]>([])
   const [loadingHoraires, setLoadingHoraires] = useState(true)
-  const [celluleEnEdition, setCelluleEnEdition] = useState<{ jour: number; profilId: string } | null>(null)
+  const [celluleEnEdition, setCelluleEnEdition] = useState<{
+    jour: number
+    profilId: string
+    mode: 'rapide' | 'detail'
+  } | null>(null)
   const [formCell, setFormCell] = useState({ heureDebut: '', heureFin: '', notes: '' })
   const [envoiHoraire, setEnvoiHoraire] = useState(false)
 
@@ -219,22 +223,37 @@ export default function Planning() {
     )
   }
 
-  function ouvrirCellule(jour: number, profilId: string) {
-    if (!estPatron) return
-    if (celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === profilId) {
-      setCelluleEnEdition(null)
-      return
-    }
+  function preRemplir(jour: number, profilId: string) {
     const existant = horaireCellule(jour, profilId)
     setFormCell({
       heureDebut: existant ? existant.heure_debut.slice(0, 5) : '',
       heureFin: existant ? existant.heure_fin.slice(0, 5) : '',
       notes: existant?.notes ?? '',
     })
-    setCelluleEnEdition({ jour, profilId })
   }
 
-  // Appui long sur une case (évite les ouvertures accidentelles en faisant défiler le tableau)
+  function ouvrirRapide(jour: number, profilId: string) {
+    if (!estPatron) return
+    if (celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === profilId) {
+      setCelluleEnEdition(null)
+      return
+    }
+    preRemplir(jour, profilId)
+    setCelluleEnEdition({ jour, profilId, mode: 'rapide' })
+  }
+
+  function ouvrirDetail(jour: number, profilId: string) {
+    if (!estPatron) return
+    preRemplir(jour, profilId)
+    setCelluleEnEdition({ jour, profilId, mode: 'detail' })
+  }
+
+  function passerEnDetail() {
+    if (!celluleEnEdition) return
+    setCelluleEnEdition({ ...celluleEnEdition, mode: 'detail' })
+  }
+
+  // Tap court = menu rapide (Matin/Après-midi). Appui long = édition précise avec le clavier.
   const appuiTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const appuiOrigine = useRef<{ x: number; y: number } | null>(null)
 
@@ -242,7 +261,7 @@ export default function Planning() {
     if (!estPatron) return
     appuiOrigine.current = { x: e.clientX, y: e.clientY }
     appuiTimer.current = setTimeout(() => {
-      ouvrirCellule(jour, profilId)
+      ouvrirDetail(jour, profilId)
       appuiTimer.current = null
     }, 450)
   }
@@ -257,6 +276,15 @@ export default function Planning() {
     }
   }
 
+  function terminerAppui(jour: number, profilId: string) {
+    // Si le minuteur n'a pas encore déclenché l'édition précise, c'était un tap court
+    if (appuiTimer.current) {
+      clearTimeout(appuiTimer.current)
+      appuiTimer.current = null
+      ouvrirRapide(jour, profilId)
+    }
+  }
+
   function annulerAppui() {
     if (appuiTimer.current) {
       clearTimeout(appuiTimer.current)
@@ -268,32 +296,47 @@ export default function Planning() {
     setFormCell((f) => ({ ...f, heureDebut: debut, heureFin: fin }))
   }
 
-  async function enregistrerCellule() {
-    if (!celluleEnEdition || !formCell.heureDebut || !formCell.heureFin || !profile) return
-    setEnvoiHoraire(true)
-    const existant = horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId)
+  async function enregistrerHoraireCellule(jour: number, profilId: string, heureDebut: string, heureFin: string, notes: string | null) {
+    if (!profile) return
+    const existant = horaireCellule(jour, profilId)
     if (existant) {
       await supabase
         .from('horaires_travail')
-        .update({
-          heure_debut: formCell.heureDebut,
-          heure_fin: formCell.heureFin,
-          notes: formCell.notes.trim() || null,
-        })
+        .update({ heure_debut: heureDebut, heure_fin: heureFin, notes })
         .eq('id', existant.id)
     } else {
       await supabase.from('horaires_travail').insert({
-        profil_id: celluleEnEdition.profilId,
-        jour: jourISOduMois(celluleEnEdition.jour),
-        heure_debut: formCell.heureDebut,
-        heure_fin: formCell.heureFin,
-        notes: formCell.notes.trim() || null,
+        profil_id: profilId,
+        jour: jourISOduMois(jour),
+        heure_debut: heureDebut,
+        heure_fin: heureFin,
+        notes,
         cree_par: profile.id,
       })
     }
+    chargerHoraires()
+  }
+
+  async function enregistrerPresetRapide(debut: string, fin: string) {
+    if (!celluleEnEdition) return
+    setEnvoiHoraire(true)
+    await enregistrerHoraireCellule(celluleEnEdition.jour, celluleEnEdition.profilId, debut, fin, null)
     setEnvoiHoraire(false)
     setCelluleEnEdition(null)
-    chargerHoraires()
+  }
+
+  async function enregistrerCellule() {
+    if (!celluleEnEdition || !formCell.heureDebut || !formCell.heureFin || !profile) return
+    setEnvoiHoraire(true)
+    await enregistrerHoraireCellule(
+      celluleEnEdition.jour,
+      celluleEnEdition.profilId,
+      formCell.heureDebut,
+      formCell.heureFin,
+      formCell.notes.trim() || null
+    )
+    setEnvoiHoraire(false)
+    setCelluleEnEdition(null)
   }
 
   async function supprimerCellule() {
@@ -488,7 +531,7 @@ export default function Planning() {
                           <button
                             onPointerDown={(e) => debuterAppui(e, jour, p.id)}
                             onPointerMove={bougerAppui}
-                            onPointerUp={annulerAppui}
+                            onPointerUp={() => terminerAppui(jour, p.id)}
                             onPointerLeave={annulerAppui}
                             onPointerCancel={annulerAppui}
                             onContextMenu={(e) => e.preventDefault()}
@@ -549,68 +592,121 @@ export default function Planning() {
         )}
 
         {celluleEnEdition && estPatron && (
-          <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-            <p className="text-sm font-medium">
-              {profilsPlanning.find((p) => p.id === celluleEnEdition.profilId)?.full_name} —{' '}
-              {formatDateCourte(jourISOduMois(celluleEnEdition.jour))}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {presetsPourJour(moisHoraires, celluleEnEdition.jour).map((preset) => (
-                <button
-                  key={preset.label}
-                  onClick={() => appliquerPreset(preset.debut, preset.fin)}
-                  className={`text-xs font-medium rounded-full px-3 py-1.5 border ${
-                    formCell.heureDebut === preset.debut && formCell.heureFin === preset.fin
-                      ? 'bg-havane text-white border-havane'
-                      : 'border-gray-300 text-encre/70'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <input
-                type="time"
-                value={formCell.heureDebut}
-                onChange={(e) => setFormCell({ ...formCell, heureDebut: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-              />
-              <input
-                type="time"
-                value={formCell.heureFin}
-                onChange={(e) => setFormCell({ ...formCell, heureFin: e.target.value })}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-              />
-            </div>
-            <input
-              value={formCell.notes}
-              onChange={(e) => setFormCell({ ...formCell, notes: e.target.value })}
-              placeholder="Notes (optionnel)"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-            />
-            <div className="flex gap-2">
-              <button
-                onClick={enregistrerCellule}
-                disabled={envoiHoraire || !formCell.heureDebut || !formCell.heureFin}
-                className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
-              >
-                {envoiHoraire ? 'Enregistrement…' : 'Enregistrer'}
-              </button>
-              {horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId) && (
-                <button
-                  onClick={supprimerCellule}
-                  className="px-3 rounded-lg border border-corail text-corail text-sm font-medium"
-                >
-                  Repos / Suppr.
-                </button>
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+            onClick={() => setCelluleEnEdition(null)}
+          >
+            <div
+              className="w-full sm:max-w-sm bg-white rounded-2xl shadow-lg p-4 space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium">
+                {profilsPlanning.find((p) => p.id === celluleEnEdition.profilId)?.full_name} —{' '}
+                {formatDateCourte(jourISOduMois(celluleEnEdition.jour))}
+              </p>
+
+              {celluleEnEdition.mode === 'rapide' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {presetsPourJour(moisHoraires, celluleEnEdition.jour).map((preset) => (
+                      <button
+                        key={preset.label}
+                        onClick={() => enregistrerPresetRapide(preset.debut, preset.fin)}
+                        disabled={envoiHoraire}
+                        className="rounded-xl border border-gray-300 py-3 text-sm font-medium text-encre/80 disabled:opacity-50"
+                      >
+                        {preset.label}
+                        <span className="block text-xs text-encre/40 mt-0.5">
+                          {formatHeureCourte(preset.debut)}-{formatHeureCourte(preset.fin)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    {horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId) && (
+                      <button
+                        onClick={supprimerCellule}
+                        className="flex-1 px-3 py-2 rounded-lg border border-corail text-corail text-sm font-medium"
+                      >
+                        Repos / Effacer
+                      </button>
+                    )}
+                    <button
+                      onClick={passerEnDetail}
+                      className="flex-1 px-3 py-2 rounded-lg border border-gray-300 text-encre/70 text-sm font-medium"
+                    >
+                      Heure précise…
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setCelluleEnEdition(null)}
+                    className="w-full text-center text-xs text-encre/50 pt-1"
+                  >
+                    Fermer
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {presetsPourJour(moisHoraires, celluleEnEdition.jour).map((preset) => (
+                      <button
+                        key={preset.label}
+                        onClick={() => appliquerPreset(preset.debut, preset.fin)}
+                        className={`text-xs font-medium rounded-full px-3 py-1.5 border ${
+                          formCell.heureDebut === preset.debut && formCell.heureFin === preset.fin
+                            ? 'bg-havane text-white border-havane'
+                            : 'border-gray-300 text-encre/70'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="time"
+                      value={formCell.heureDebut}
+                      onChange={(e) => setFormCell({ ...formCell, heureDebut: e.target.value })}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+                    />
+                    <input
+                      type="time"
+                      value={formCell.heureFin}
+                      onChange={(e) => setFormCell({ ...formCell, heureFin: e.target.value })}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+                    />
+                  </div>
+                  <input
+                    value={formCell.notes}
+                    onChange={(e) => setFormCell({ ...formCell, notes: e.target.value })}
+                    placeholder="Notes (optionnel)"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={enregistrerCellule}
+                      disabled={envoiHoraire || !formCell.heureDebut || !formCell.heureFin}
+                      className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      {envoiHoraire ? 'Enregistrement…' : 'Enregistrer'}
+                    </button>
+                    {horaireCellule(celluleEnEdition.jour, celluleEnEdition.profilId) && (
+                      <button
+                        onClick={supprimerCellule}
+                        className="px-3 rounded-lg border border-corail text-corail text-sm font-medium"
+                      >
+                        Repos / Suppr.
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setCelluleEnEdition(null)}
+                      className="px-3 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                </>
               )}
-              <button
-                onClick={() => setCelluleEnEdition(null)}
-                className="px-3 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
-              >
-                Fermer
-              </button>
             </div>
           </div>
         )}
