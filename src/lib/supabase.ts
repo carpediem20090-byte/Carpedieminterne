@@ -150,6 +150,7 @@ export type HeuresMensuelles = {
   mois: string // premier jour du mois, ex: '2026-09-01'
   heures_travaillees: number | null
   heures_contrat: number
+  supp_payees: boolean
   commentaire: string | null
   modifie_le: string
   profiles?: Profile

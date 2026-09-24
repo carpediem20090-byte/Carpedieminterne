@@ -69,6 +69,23 @@ function formatHeureCourte(t: string) {
   return m === '00' ? `${Number(h)}h` : `${Number(h)}h${m}`
 }
 
+const COMPTE_EXCLU_PLANNING = 'carpediem20090@gmail.com'
+const ORDRE_PLANNING = ['Jess', 'Agathe', 'Isa', 'Quentin', 'Delphine', 'Luca', 'Pascal', 'Christelle']
+
+function trierPourPlanning(profils: Profile[]) {
+  return profils
+    .filter((p) => p.full_name !== COMPTE_EXCLU_PLANNING)
+    .slice()
+    .sort((a, b) => {
+      const ia = ORDRE_PLANNING.indexOf(a.full_name)
+      const ib = ORDRE_PLANNING.indexOf(b.full_name)
+      if (ia === -1 && ib === -1) return a.full_name.localeCompare(b.full_name)
+      if (ia === -1) return 1
+      if (ib === -1) return -1
+      return ia - ib
+    })
+}
+
 export default function Planning() {
   const { profile, estPatron } = useAuth()
 
@@ -104,9 +121,15 @@ export default function Planning() {
   const [mois, setMois] = useState(moisActuel())
   const [heures, setHeures] = useState<HeuresMensuelles[]>([])
   const [loadingHeures, setLoadingHeures] = useState(true)
-  const [edition, setEdition] = useState<{ heuresTravaillees: string; heuresContrat: string; commentaire: string }>({
+  const [edition, setEdition] = useState<{
+    heuresTravaillees: string
+    heuresContrat: string
+    suppPayees: boolean
+    commentaire: string
+  }>({
     heuresTravaillees: '',
     heuresContrat: '151.67',
+    suppPayees: false,
     commentaire: '',
   })
   const [envoiHeures, setEnvoiHeures] = useState(false)
@@ -150,7 +173,7 @@ export default function Planning() {
 
   async function chargerHeures() {
     setLoadingHeures(true)
-    const { data: h } = await supabase.from('heures_mensuelles').select('*').eq('mois', `${mois}-01`)
+    const { data: h } = await supabase.from('heures_mensuelles').select('*').order('mois', { ascending: true })
     setHeures((h as HeuresMensuelles[]) ?? [])
     setLoadingHeures(false)
   }
@@ -167,7 +190,7 @@ export default function Planning() {
 
   useEffect(() => {
     if (estPatron) chargerHeures()
-  }, [mois, estPatron])
+  }, [estPatron])
 
   // --- Horaires du mois (calendrier) ---
 
@@ -356,11 +379,24 @@ export default function Planning() {
 
   // --- Heures mensuelles ---
 
+  function heuresDuMoisPour(profilId: string) {
+    return heures.find((h) => h.profil_id === profilId && h.mois === `${mois}-01`)
+  }
+
+  // Solde reporté = somme des écarts (travaillées - contrat) des mois précédents
+  // qui n'ont pas été marqués "payées" (donc lissés / reportés sur la suite)
+  function soldeReporte(profilId: string) {
+    return heures
+      .filter((h) => h.profil_id === profilId && h.mois < `${mois}-01` && !h.supp_payees)
+      .reduce((total, h) => total + ((h.heures_travaillees ?? h.heures_contrat) - h.heures_contrat), 0)
+  }
+
   function ouvrirEdition(profilId: string) {
-    const existant = heures.find((h) => h.profil_id === profilId)
+    const existant = heuresDuMoisPour(profilId)
     setEdition({
       heuresTravaillees: existant?.heures_travaillees?.toString() ?? '',
       heuresContrat: existant?.heures_contrat?.toString() ?? '151.67',
+      suppPayees: existant?.supp_payees ?? false,
       commentaire: existant?.commentaire ?? '',
     })
   }
@@ -373,6 +409,7 @@ export default function Planning() {
         mois: `${mois}-01`,
         heures_travaillees: edition.heuresTravaillees ? Number(edition.heuresTravaillees) : null,
         heures_contrat: Number(edition.heuresContrat) || 151.67,
+        supp_payees: edition.suppPayees,
         commentaire: edition.commentaire.trim() || null,
         modifie_le: new Date().toISOString(),
       },
@@ -383,6 +420,7 @@ export default function Planning() {
     chargerHeures()
   }
 
+  const profilsPlanning = trierPourPlanning(profils)
   const aVenir = demandes.filter((d) => d.date_fin >= new Date().toISOString().slice(0, 10))
   const passees = demandes.filter((d) => d.date_fin < new Date().toISOString().slice(0, 10))
   const modifEnAttente = demandesModif.filter((d) => d.statut === 'en_attente')
@@ -411,11 +449,11 @@ export default function Planning() {
         </div>
 
         {loadingHoraires && <p className="text-sm text-encre/50">Chargement…</p>}
-        {!loadingHoraires && profils.length === 0 && (
+        {!loadingHoraires && profilsPlanning.length === 0 && (
           <p className="text-sm text-encre/50">Aucun profil pour le moment.</p>
         )}
 
-        {!loadingHoraires && profils.length > 0 && (
+        {!loadingHoraires && profilsPlanning.length > 0 && (
           <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
             <table className="border-collapse text-xs">
               <thead>
@@ -423,7 +461,7 @@ export default function Planning() {
                   <th className="sticky left-0 bg-white px-2 py-2 text-left font-medium text-encre/60 border-b border-gray-100">
                     Jour
                   </th>
-                  {profils.map((p) => (
+                  {profilsPlanning.map((p) => (
                     <th
                       key={p.id}
                       className="px-2 py-2 font-medium text-encre/80 border-b border-gray-100 whitespace-nowrap"
@@ -440,7 +478,7 @@ export default function Planning() {
                       <span className="font-medium">{jour}</span>{' '}
                       <span className="text-encre/40">{lettreJour(moisHoraires, jour)}</span>
                     </td>
-                    {profils.map((p) => {
+                    {profilsPlanning.map((p) => {
                       const h = horaireCellule(jour, p.id)
                       const absence = demandeAbsenceCellule(jour, p.id)
                       const modif = demandeModifCellule(jour, p.id)
@@ -490,7 +528,7 @@ export default function Planning() {
           </div>
         )}
 
-        {!loadingHoraires && profils.length > 0 && (
+        {!loadingHoraires && profilsPlanning.length > 0 && (
           <div className="flex flex-wrap gap-3 text-xs text-encre/60">
             <span className="flex items-center gap-1">
               <span className="inline-block w-3 h-3 rounded-sm bg-corail/15" /> Matin
@@ -513,7 +551,7 @@ export default function Planning() {
         {celluleEnEdition && estPatron && (
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
             <p className="text-sm font-medium">
-              {profils.find((p) => p.id === celluleEnEdition.profilId)?.full_name} —{' '}
+              {profilsPlanning.find((p) => p.id === celluleEnEdition.profilId)?.full_name} —{' '}
               {formatDateCourte(jourISOduMois(celluleEnEdition.jour))}
             </p>
             <div className="flex flex-wrap gap-2">
@@ -747,11 +785,14 @@ export default function Planning() {
         {loadingHeures && <p className="text-sm text-encre/50">Chargement…</p>}
 
         <div className="space-y-2">
-          {profils.map((p) => {
-            const h = heures.find((x) => x.profil_id === p.id)
+          {profilsPlanning.map((p) => {
+            const h = heuresDuMoisPour(p.id)
             const travaillees = h?.heures_travaillees ?? null
             const contrat = h?.heures_contrat ?? 151.67
-            const depassement = travaillees !== null && travaillees > contrat
+            const ecartMois = travaillees !== null ? travaillees - contrat : 0
+            const reporte = soldeReporte(p.id)
+            const soldeTotal = reporte + ecartMois
+            const depassement = soldeTotal > 0
             const estOuvert = editionOuverte === p.id
 
             return (
@@ -759,9 +800,17 @@ export default function Planning() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="font-medium text-sm">{p.full_name}</p>
-                    <p className={`text-xs mt-0.5 ${depassement ? 'text-corail font-medium' : 'text-encre/50'}`}>
-                      {travaillees !== null ? `${travaillees}h / ${contrat}h` : 'Pas encore renseigné'}
-                      {depassement && ' — dépassement'}
+                    <p className="text-xs mt-0.5 text-encre/50">
+                      {travaillees !== null ? `${travaillees}h / ${contrat}h ce mois` : 'Pas encore renseigné ce mois'}
+                      {h?.supp_payees && ' — heures sup payées'}
+                    </p>
+                    {reporte !== 0 && (
+                      <p className="text-xs mt-0.5 text-encre/50">
+                        Reporté des mois précédents : {reporte > 0 ? '+' : ''}{reporte}h
+                      </p>
+                    )}
+                    <p className={`text-xs mt-0.5 font-medium ${depassement ? 'text-corail' : 'text-encre/50'}`}>
+                      Solde cumulé : {soldeTotal > 0 ? '+' : ''}{soldeTotal}h
                     </p>
                     {h?.commentaire && <p className="text-xs text-encre/60 mt-1">{h.commentaire}</p>}
                   </div>
@@ -804,6 +853,15 @@ export default function Planning() {
                         />
                       </div>
                     </div>
+                    <label className="flex items-center gap-2 text-sm text-encre/70">
+                      <input
+                        type="checkbox"
+                        checked={edition.suppPayees}
+                        onChange={(e) => setEdition({ ...edition, suppPayees: e.target.checked })}
+                        className="rounded border-gray-300"
+                      />
+                      Heures sup de ce mois payées (ne se reportent pas sur le mois suivant)
+                    </label>
                     <textarea
                       value={edition.commentaire}
                       onChange={(e) => setEdition({ ...edition, commentaire: e.target.value })}
