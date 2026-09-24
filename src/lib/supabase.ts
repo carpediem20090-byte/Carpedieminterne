@@ -188,6 +188,14 @@ export type HoraireTravail = {
   profiles?: Profile
 }
 
+export type NotePlanning = {
+  id: string
+  jour: string
+  note: string
+  modifie_par: string
+  modifie_le: string
+}
+
 export type DemandeModificationHoraire = {
   id: string
   profil_id: string

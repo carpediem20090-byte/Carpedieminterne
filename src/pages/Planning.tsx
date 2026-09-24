@@ -5,6 +5,7 @@ import {
   type DemandeModificationHoraire,
   type HeuresMensuelles,
   type HoraireTravail,
+  type NotePlanning,
   type Profile,
 } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -103,6 +104,10 @@ export default function Planning() {
   } | null>(null)
   const [formCell, setFormCell] = useState({ heureDebut: '', heureFin: '', notes: '' })
   const [envoiHoraire, setEnvoiHoraire] = useState(false)
+  const [notesJour, setNotesJour] = useState<NotePlanning[]>([])
+  const [jourNoteEnEdition, setJourNoteEnEdition] = useState<number | null>(null)
+  const [texteNote, setTexteNote] = useState('')
+  const [envoiNote, setEnvoiNote] = useState(false)
 
   // Demandes de changement d'horaire
   const [demandesModif, setDemandesModif] = useState<DemandeModificationHoraire[]>([])
@@ -158,6 +163,17 @@ export default function Planning() {
     setLoadingHoraires(false)
   }
 
+  async function chargerNotesJour() {
+    const debut = `${moisHoraires}-01`
+    const fin = `${moisHoraires}-${String(joursDansMois(moisHoraires)).padStart(2, '0')}`
+    const { data } = await supabase
+      .from('notes_planning')
+      .select('*')
+      .gte('jour', debut)
+      .lte('jour', fin)
+    setNotesJour((data as NotePlanning[]) ?? [])
+  }
+
   async function chargerDemandesModif() {
     const { data } = await supabase
       .from('demandes_modification_horaire')
@@ -190,6 +206,7 @@ export default function Planning() {
 
   useEffect(() => {
     chargerHoraires()
+    chargerNotesJour()
   }, [moisHoraires])
 
   useEffect(() => {
@@ -347,6 +364,51 @@ export default function Planning() {
     }
     setCelluleEnEdition(null)
     chargerHoraires()
+  }
+
+  // --- Commentaire du jour ---
+
+  function noteDuJour(jour: number) {
+    const iso = jourISOduMois(jour)
+    return notesJour.find((n) => n.jour === iso)
+  }
+
+  function ouvrirNoteJour(jour: number) {
+    if (!estPatron) return
+    setTexteNote(noteDuJour(jour)?.note ?? '')
+    setJourNoteEnEdition(jour)
+  }
+
+  async function enregistrerNoteJour() {
+    if (jourNoteEnEdition === null || !profile) return
+    setEnvoiNote(true)
+    const iso = jourISOduMois(jourNoteEnEdition)
+    const existante = noteDuJour(jourNoteEnEdition)
+    if (!texteNote.trim()) {
+      if (existante) await supabase.from('notes_planning').delete().eq('id', existante.id)
+    } else if (existante) {
+      await supabase
+        .from('notes_planning')
+        .update({ note: texteNote.trim(), modifie_par: profile.id, modifie_le: new Date().toISOString() })
+        .eq('id', existante.id)
+    } else {
+      await supabase.from('notes_planning').insert({
+        jour: iso,
+        note: texteNote.trim(),
+        modifie_par: profile.id,
+      })
+    }
+    setEnvoiNote(false)
+    setJourNoteEnEdition(null)
+    chargerNotesJour()
+  }
+
+  async function supprimerNoteJour() {
+    if (jourNoteEnEdition === null) return
+    const existante = noteDuJour(jourNoteEnEdition)
+    if (existante) await supabase.from('notes_planning').delete().eq('id', existante.id)
+    setJourNoteEnEdition(null)
+    chargerNotesJour()
   }
 
   // --- Demandes de changement d'horaire ---
@@ -512,6 +574,9 @@ export default function Planning() {
                       {p.full_name.split(' ')[0]}
                     </th>
                   ))}
+                  <th className="px-2 py-2 font-medium text-encre/80 border-b border-gray-100 whitespace-nowrap">
+                    Commentaire
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -564,6 +629,18 @@ export default function Planning() {
                         </td>
                       )
                     })}
+                    <td className="px-1 py-1 text-center">
+                      <button
+                        onClick={() => ouvrirNoteJour(jour)}
+                        disabled={!estPatron}
+                        title={noteDuJour(jour)?.note}
+                        className={`w-full min-w-[36px] rounded-md px-1 py-1 text-sm ${
+                          noteDuJour(jour) ? 'text-corail font-semibold' : 'text-encre/25'
+                        }`}
+                      >
+                        {noteDuJour(jour) ? '✱' : '+'}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -707,6 +784,53 @@ export default function Planning() {
                   </div>
                 </>
               )}
+            </div>
+          </div>
+        )}
+
+        {jourNoteEnEdition !== null && estPatron && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+            onClick={() => setJourNoteEnEdition(null)}
+          >
+            <div
+              className="w-full sm:max-w-sm bg-white rounded-2xl shadow-lg p-4 space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium">
+                Commentaire — {formatDateCourte(jourISOduMois(jourNoteEnEdition))}
+              </p>
+              <textarea
+                value={texteNote}
+                onChange={(e) => setTexteNote(e.target.value)}
+                placeholder="Ex : fermeture exceptionnelle à 18h, inventaire ce jour-là…"
+                rows={3}
+                autoFocus
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane resize-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={enregistrerNoteJour}
+                  disabled={envoiNote}
+                  className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+                >
+                  {envoiNote ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+                {noteDuJour(jourNoteEnEdition) && (
+                  <button
+                    onClick={supprimerNoteJour}
+                    className="px-3 rounded-lg border border-corail text-corail text-sm font-medium"
+                  >
+                    Suppr.
+                  </button>
+                )}
+                <button
+                  onClick={() => setJourNoteEnEdition(null)}
+                  className="px-3 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
+                >
+                  Fermer
+                </button>
+              </div>
             </div>
           </div>
         )}

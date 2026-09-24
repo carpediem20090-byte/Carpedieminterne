@@ -1,0 +1,15 @@
+{
+  "name": "Carpe Diem — Gestion",
+  "short_name": "Carpe Diem",
+  "description": "Application interne de gestion du tabac Carpe Diem",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F5EFE3",
+  "theme_color": "#123A6B",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
