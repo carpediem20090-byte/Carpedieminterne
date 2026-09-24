@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react'
 import {
   supabase,
   type DemandeAbsence,
@@ -49,11 +49,20 @@ function lettreJour(moisStr: string, jour: number) {
   return LETTRES_JOURS[idx]
 }
 
-const PRESETS_HORAIRE = [
-  { label: 'Matin', debut: '07:00', fin: '13:00' },
-  { label: 'Après-midi', debut: '13:00', fin: '20:00' },
-  { label: 'Journée', debut: '07:00', fin: '20:00' },
-]
+function presetsPourJour(moisStr: string, jour: number) {
+  const [annee, m] = moisStr.split('-').map(Number)
+  const estDimanche = new Date(annee, m - 1, jour).getDay() === 0
+  if (estDimanche) {
+    return [
+      { label: 'Matin', debut: '06:00', fin: '13:00' },
+      { label: 'Après-midi', debut: '13:00', fin: '20:00' },
+    ]
+  }
+  return [
+    { label: 'Matin', debut: '06:00', fin: '13:30' },
+    { label: 'Après-midi', debut: '13:30', fin: '20:00' },
+  ]
+}
 
 function formatHeureCourte(t: string) {
   const [h, m] = t.slice(0, 5).split(':')
@@ -171,6 +180,22 @@ export default function Planning() {
     return horaires.find((h) => h.jour === iso && h.profil_id === profilId)
   }
 
+  function demandeAbsenceCellule(jour: number, profilId: string) {
+    const iso = jourISOduMois(jour)
+    return demandes.find((d) => d.demandee_par === profilId && d.date_debut <= iso && d.date_fin >= iso)
+  }
+
+  function estMatin(h: HoraireTravail) {
+    return h.heure_debut < '12:00'
+  }
+
+  function demandeModifCellule(jour: number, profilId: string) {
+    const iso = jourISOduMois(jour)
+    return demandesModif.find(
+      (d) => d.profil_id === profilId && d.jour === iso && d.statut === 'en_attente'
+    )
+  }
+
   function ouvrirCellule(jour: number, profilId: string) {
     if (!estPatron) return
     if (celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === profilId) {
@@ -184,6 +209,36 @@ export default function Planning() {
       notes: existant?.notes ?? '',
     })
     setCelluleEnEdition({ jour, profilId })
+  }
+
+  // Appui long sur une case (évite les ouvertures accidentelles en faisant défiler le tableau)
+  const appuiTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const appuiOrigine = useRef<{ x: number; y: number } | null>(null)
+
+  function debuterAppui(e: PointerEvent, jour: number, profilId: string) {
+    if (!estPatron) return
+    appuiOrigine.current = { x: e.clientX, y: e.clientY }
+    appuiTimer.current = setTimeout(() => {
+      ouvrirCellule(jour, profilId)
+      appuiTimer.current = null
+    }, 450)
+  }
+
+  function bougerAppui(e: PointerEvent) {
+    if (!appuiTimer.current || !appuiOrigine.current) return
+    const dx = Math.abs(e.clientX - appuiOrigine.current.x)
+    const dy = Math.abs(e.clientY - appuiOrigine.current.y)
+    if (dx > 8 || dy > 8) {
+      clearTimeout(appuiTimer.current)
+      appuiTimer.current = null
+    }
+  }
+
+  function annulerAppui() {
+    if (appuiTimer.current) {
+      clearTimeout(appuiTimer.current)
+      appuiTimer.current = null
+    }
   }
 
   function appliquerPreset(debut: string, fin: string) {
@@ -387,21 +442,43 @@ export default function Planning() {
                     </td>
                     {profils.map((p) => {
                       const h = horaireCellule(jour, p.id)
+                      const absence = demandeAbsenceCellule(jour, p.id)
+                      const modif = demandeModifCellule(jour, p.id)
                       const selectionnee = celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === p.id
                       return (
                         <td key={p.id} className="px-1 py-1 text-center">
                           <button
-                            onClick={() => ouvrirCellule(jour, p.id)}
+                            onPointerDown={(e) => debuterAppui(e, jour, p.id)}
+                            onPointerMove={bougerAppui}
+                            onPointerUp={annulerAppui}
+                            onPointerLeave={annulerAppui}
+                            onPointerCancel={annulerAppui}
+                            onContextMenu={(e) => e.preventDefault()}
                             disabled={!estPatron}
-                            className={`w-full min-w-[52px] rounded-md px-1 py-1 ${
+                            title={
+                              absence
+                                ? absence.type === 'conge'
+                                  ? 'Congé demandé'
+                                  : 'Repos demandé'
+                                : modif
+                                ? `Changement demandé : ${modif.message}`
+                                : undefined
+                            }
+                            className={`relative w-full min-w-[52px] rounded-md px-1 py-1 select-none ${
                               selectionnee
                                 ? 'bg-havane text-white'
+                                : absence
+                                ? absence.type === 'conge'
+                                  ? 'bg-havane/15 text-havane'
+                                  : 'bg-laiton/25 text-encre/80'
                                 : h
-                                ? 'bg-creme text-encre/80'
+                                ? estMatin(h)
+                                  ? 'bg-corail/15 text-corail'
+                                  : 'bg-blue-100 text-blue-700'
                                 : 'text-encre/25'
-                            }`}
+                            } ${modif && !selectionnee ? 'ring-2 ring-corail' : ''}`}
                           >
-                            {h ? `${formatHeureCourte(h.heure_debut)}-${formatHeureCourte(h.heure_fin)}` : '—'}
+                            {h ? `${formatHeureCourte(h.heure_debut)}-${formatHeureCourte(h.heure_fin)}` : absence ? (absence.type === 'conge' ? 'Congé' : 'Repos') : '—'}
                           </button>
                         </td>
                       )
@@ -413,6 +490,26 @@ export default function Planning() {
           </div>
         )}
 
+        {!loadingHoraires && profils.length > 0 && (
+          <div className="flex flex-wrap gap-3 text-xs text-encre/60">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm bg-corail/15" /> Matin
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm bg-blue-100" /> Après-midi
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm bg-havane/15" /> Congé demandé
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm bg-laiton/25" /> Repos demandé
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm ring-2 ring-corail" /> Changement d'horaire demandé
+            </span>
+          </div>
+        )}
+
         {celluleEnEdition && estPatron && (
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
             <p className="text-sm font-medium">
@@ -420,7 +517,7 @@ export default function Planning() {
               {formatDateCourte(jourISOduMois(celluleEnEdition.jour))}
             </p>
             <div className="flex flex-wrap gap-2">
-              {PRESETS_HORAIRE.map((preset) => (
+              {presetsPourJour(moisHoraires, celluleEnEdition.jour).map((preset) => (
                 <button
                   key={preset.label}
                   onClick={() => appliquerPreset(preset.debut, preset.fin)}
