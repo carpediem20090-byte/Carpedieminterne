@@ -144,6 +144,7 @@ export default function Planning() {
   })
   const [envoiHeures, setEnvoiHeures] = useState(false)
   const [editionOuverte, setEditionOuverte] = useState<string | null>(null)
+  const [horairesTous, setHorairesTous] = useState<HoraireTravail[]>([])
 
   async function chargerProfils() {
     const { data } = await supabase.from('profiles').select('*').order('full_name', { ascending: true })
@@ -199,6 +200,13 @@ export default function Planning() {
     setLoadingHeures(false)
   }
 
+  // Tous les créneaux du planning (tous mois confondus), pour calculer automatiquement
+  // les heures travaillées de chaque mois à partir du calendrier.
+  async function chargerHorairesTous() {
+    const { data } = await supabase.from('horaires_travail').select('*').order('jour', { ascending: true })
+    setHorairesTous((data as HoraireTravail[]) ?? [])
+  }
+
   useEffect(() => {
     chargerProfils()
     chargerDemandes()
@@ -211,7 +219,10 @@ export default function Planning() {
   }, [moisHoraires])
 
   useEffect(() => {
-    if (estPatron) chargerHeures()
+    if (estPatron) {
+      chargerHeures()
+      chargerHorairesTous()
+    }
   }, [estPatron])
 
   // --- Horaires du mois (calendrier) ---
@@ -497,6 +508,26 @@ export default function Planning() {
     return heures.find((h) => h.profil_id === profilId && h.mois === `${mois}-01`)
   }
 
+  function arrondi(n: number) {
+    return Math.round(n * 100) / 100
+  }
+
+  function dureeHeures(h: HoraireTravail) {
+    const [hd, md] = h.heure_debut.slice(0, 5).split(':').map(Number)
+    const [hf, mf] = h.heure_fin.slice(0, 5).split(':').map(Number)
+    return (hf * 60 + mf - (hd * 60 + md)) / 60
+  }
+
+  // Total d'heures calculé automatiquement à partir des créneaux saisis dans le
+  // calendrier "Horaires du mois" ci-dessus, pour un profil et un mois donnés.
+  function heuresCalculeesDuPlanning(profilId: string, moisStr: string) {
+    return arrondi(
+      horairesTous
+        .filter((h) => h.profil_id === profilId && h.jour.startsWith(moisStr))
+        .reduce((total, h) => total + dureeHeures(h), 0)
+    )
+  }
+
   // Solde reporté = somme des écarts (travaillées - contrat) des mois précédents
   // qui n'ont pas été marqués "payées" (donc lissés / reportés sur la suite)
   function soldeReporte(profilId: string) {
@@ -507,8 +538,9 @@ export default function Planning() {
 
   function ouvrirEdition(profilId: string) {
     const existant = heuresDuMoisPour(profilId)
+    const calcule = heuresCalculeesDuPlanning(profilId, mois)
     setEdition({
-      heuresTravaillees: existant?.heures_travaillees?.toString() ?? '',
+      heuresTravaillees: existant?.heures_travaillees?.toString() ?? (calcule ? String(calcule) : ''),
       heuresContrat: existant?.heures_contrat?.toString() ?? '151.67',
       suppPayees: existant?.supp_payees ?? false,
       commentaire: existant?.commentaire ?? '',
@@ -1044,6 +1076,7 @@ export default function Planning() {
         <div className="space-y-2">
           {profilsPlanning.map((p) => {
             const h = heuresDuMoisPour(p.id)
+            const calcule = heuresCalculeesDuPlanning(p.id, mois)
             const travaillees = h?.heures_travaillees ?? null
             const contrat = h?.heures_contrat ?? 151.67
             const ecartMois = travaillees !== null ? travaillees - contrat : 0
@@ -1060,6 +1093,9 @@ export default function Planning() {
                     <p className="text-xs mt-0.5 text-encre/50">
                       {travaillees !== null ? `${travaillees}h / ${contrat}h ce mois` : 'Pas encore renseigné ce mois'}
                       {h?.supp_payees && ' — heures sup payées'}
+                    </p>
+                    <p className="text-xs mt-0.5 text-encre/40">
+                      Calculé depuis le planning : {calcule}h
                     </p>
                     {reporte !== 0 && (
                       <p className="text-xs mt-0.5 text-encre/50">
@@ -1098,6 +1134,15 @@ export default function Planning() {
                           onChange={(e) => setEdition({ ...edition, heuresTravaillees: e.target.value })}
                           className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
                         />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEdition({ ...edition, heuresTravaillees: String(heuresCalculeesDuPlanning(p.id, mois)) })
+                          }
+                          className="mt-1 text-xs text-havane underline"
+                        >
+                          Reprendre le calcul du planning ({heuresCalculeesDuPlanning(p.id, mois)}h)
+                        </button>
                       </div>
                       <div>
                         <label className="block text-xs font-medium mb-1 text-encre/60">Heures contrat</label>
