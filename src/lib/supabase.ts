@@ -135,6 +135,7 @@ export type DemandeClient = {
 export type DemandeAbsence = {
   id: string
   type: 'conge' | 'repos'
+  periode: 'journee' | 'matin' | 'apres_midi' // journée entière, matin ou après-midi
   date_debut: string
   date_fin: string
   commentaire: string | null
