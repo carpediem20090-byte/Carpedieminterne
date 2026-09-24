@@ -6,6 +6,7 @@ type AuthContextValue = {
   session: Session | null
   profile: Profile | null
   loading: boolean
+  estPatron: boolean
   signInWithPassword: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
@@ -54,8 +55,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
   }
 
+  const estPatron = profile?.role === 'patron'
+
   return (
-    <AuthContext.Provider value={{ session, profile, loading, signInWithPassword, signOut }}>
+    <AuthContext.Provider value={{ session, profile, loading, estPatron, signInWithPassword, signOut }}>
       {children}
     </AuthContext.Provider>
   )

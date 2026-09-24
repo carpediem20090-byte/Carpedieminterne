@@ -1,17 +1,22 @@
 import { Link } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const modules = [
-  { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚' },
-  { to: '/factures', label: 'Factures', icon: '🧾' },
-  { to: '/stock', label: 'Stock & rangement', icon: '🗂️' },
-  { to: '/contacts', label: 'Carnet téléphonique', icon: '📞' },
-  { to: '/demandes', label: 'Demandes clients', icon: '💬' },
-  { to: '/planning', label: 'Planning', icon: '🗓️' },
-  { to: '/booster', label: 'Produits à booster', icon: '🚀' },
-  { to: '/actus', label: 'Actus & nouveautés', icon: '📰' },
+  { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: true },
+  { to: '/factures', label: 'Factures', icon: '🧾', patron: true },
+  { to: '/stock', label: 'Stock & rangement', icon: '🗂️', patron: false },
+  { to: '/contacts', label: 'Carnet téléphonique', icon: '📞', patron: false },
+  { to: '/demandes', label: 'Demandes clients', icon: '💬', patron: false },
+  { to: '/planning', label: 'Planning', icon: '🗓️', patron: false },
+  { to: '/booster', label: 'Produits à booster', icon: '🚀', patron: false },
+  { to: '/actus', label: 'Actus & nouveautés', icon: '📰', patron: false },
+  { to: '/equipe', label: 'Équipe', icon: '👥', patron: true },
 ]
 
 export default function Plus() {
+  const { estPatron } = useAuth()
+  const visibles = modules.filter((m) => !m.patron || estPatron)
+
   return (
     <div className="space-y-6">
       <div>
@@ -20,7 +25,7 @@ export default function Plus() {
       </div>
 
       <div className="space-y-2">
-        {modules.map((m) => (
+        {visibles.map((m) => (
           <Link
             key={m.to}
             to={m.to}

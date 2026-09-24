@@ -13,7 +13,7 @@ function moisActuel() {
 }
 
 export default function Planning() {
-  const { profile } = useAuth()
+  const { profile, estPatron } = useAuth()
 
   // Demandes de congés / repos
   const [demandes, setDemandes] = useState<DemandeAbsence[]>([])
@@ -59,8 +59,8 @@ export default function Planning() {
   }, [])
 
   useEffect(() => {
-    chargerHeures()
-  }, [mois])
+    if (estPatron) chargerHeures()
+  }, [mois, estPatron])
 
   async function ajouterDemande(e: FormEvent) {
     e.preventDefault()
@@ -191,7 +191,7 @@ export default function Planning() {
           <div className="space-y-2">
             <p className="text-xs font-medium text-encre/50 uppercase">À venir</p>
             {aVenir.map((d) => (
-              <CarteDemande key={d.id} d={d} onSupprimer={supprimerDemande} />
+              <CarteDemande key={d.id} d={d} onSupprimer={estPatron ? supprimerDemande : undefined} />
             ))}
           </div>
         )}
@@ -200,7 +200,7 @@ export default function Planning() {
           <div className="space-y-2">
             <p className="text-xs font-medium text-encre/50 uppercase">Passées</p>
             {passees.map((d) => (
-              <CarteDemande key={d.id} d={d} onSupprimer={supprimerDemande} passee />
+              <CarteDemande key={d.id} d={d} onSupprimer={estPatron ? supprimerDemande : undefined} passee />
             ))}
           </div>
         )}
@@ -210,7 +210,8 @@ export default function Planning() {
         )}
       </div>
 
-      {/* Heures mensuelles */}
+      {/* Heures mensuelles — patrons uniquement */}
+      {estPatron && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-sm text-encre/80">Heures du mois</h2>
@@ -303,6 +304,7 @@ export default function Planning() {
           })}
         </div>
       </div>
+      )}
     </div>
   )
 }
@@ -313,7 +315,7 @@ function CarteDemande({
   passee,
 }: {
   d: DemandeAbsence
-  onSupprimer: (id: string) => void
+  onSupprimer?: (id: string) => void
   passee?: boolean
 }) {
   return (
@@ -336,9 +338,11 @@ function CarteDemande({
           <p className="text-xs text-encre/40 mt-1">Demandé par {d.profiles?.full_name ?? '—'}</p>
           {d.commentaire && <p className="text-xs text-encre/60 mt-1">{d.commentaire}</p>}
         </div>
-        <button onClick={() => onSupprimer(d.id)} className="text-xs text-corail underline shrink-0">
-          Suppr.
-        </button>
+        {onSupprimer && (
+          <button onClick={() => onSupprimer(d.id)} className="text-xs text-corail underline shrink-0">
+            Suppr.
+          </button>
+        )}
       </div>
     </div>
   )

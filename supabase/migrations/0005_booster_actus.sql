@@ -13,26 +13,17 @@ create table if not exists public.produits_booster (
 
 alter table public.produits_booster enable row level security;
 
-create policy "Produits à booster visibles par tous les utilisateurs connectés"
-  on public.produits_booster for select
-  to authenticated
-  using (true);
+create policy produits_booster_select on public.produits_booster for select
+  to authenticated using (true);
 
-create policy "Tout utilisateur connecté peut ajouter un produit à booster"
-  on public.produits_booster for insert
-  to authenticated
-  with check (auth.uid() = ajoute_par);
+create policy produits_booster_insert on public.produits_booster for insert
+  to authenticated with check (auth.uid() = ajoute_par);
 
-create policy "Tout utilisateur connecté peut modifier un produit à booster"
-  on public.produits_booster for update
-  to authenticated
-  using (true)
-  with check (true);
+create policy produits_booster_update on public.produits_booster for update
+  to authenticated using (true) with check (true);
 
-create policy "Tout utilisateur connecté peut supprimer un produit à booster"
-  on public.produits_booster for delete
-  to authenticated
-  using (true);
+create policy produits_booster_delete on public.produits_booster for delete
+  to authenticated using (true);
 
 
 -- 2. Actus / infos produits (nouveautés, infos utiles à toute l'équipe)
@@ -47,17 +38,11 @@ create table if not exists public.actus (
 
 alter table public.actus enable row level security;
 
-create policy "Actus visibles par tous les utilisateurs connectés"
-  on public.actus for select
-  to authenticated
-  using (true);
+create policy actus_select on public.actus for select
+  to authenticated using (true);
 
-create policy "Tout utilisateur connecté peut publier une actu"
-  on public.actus for insert
-  to authenticated
-  with check (auth.uid() = auteur_id);
+create policy actus_insert on public.actus for insert
+  to authenticated with check (auth.uid() = auteur_id);
 
-create policy "Tout utilisateur connecté peut supprimer une actu"
-  on public.actus for delete
-  to authenticated
-  using (true);
+create policy actus_delete on public.actus for delete
+  to authenticated using (true);

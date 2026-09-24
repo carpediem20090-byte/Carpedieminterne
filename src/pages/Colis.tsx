@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import * as XLSX from 'xlsx'
 import { supabase, TRANSPORTEURS, type ColisErreurRemise, type ColisReception } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -45,7 +46,8 @@ function ReceptionColis() {
   const [transporteur, setTransporteur] = useState<string>(TRANSPORTEURS[0])
   const [nbVrac, setNbVrac] = useState('')
   const [nbSac, setNbSac] = useState('')
-  const [nbRetours, setNbRetours] = useState('')
+  const [nbRetoursVrac, setNbRetoursVrac] = useState('')
+  const [nbRetoursSac, setNbRetoursSac] = useState('')
   const [commentaire, setCommentaire] = useState('')
   const [envoi, setEnvoi] = useState(false)
 
@@ -72,7 +74,8 @@ function ReceptionColis() {
       transporteur,
       nb_vrac: Number(nbVrac) || 0,
       nb_sac: Number(nbSac) || 0,
-      nb_retours: Number(nbRetours) || 0,
+      nb_retours_vrac: Number(nbRetoursVrac) || 0,
+      nb_retours_sac: Number(nbRetoursSac) || 0,
       commentaire: commentaire.trim() || null,
       recu_par: profile.id,
     })
@@ -80,7 +83,8 @@ function ReceptionColis() {
     if (!error) {
       setNbVrac('')
       setNbSac('')
-      setNbRetours('')
+      setNbRetoursVrac('')
+      setNbRetoursSac('')
       setCommentaire('')
       charger()
     }
@@ -104,10 +108,20 @@ function ReceptionColis() {
           </select>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <NumberField label="Vrac" value={nbVrac} onChange={setNbVrac} />
-          <NumberField label="Sacs" value={nbSac} onChange={setNbSac} />
-          <NumberField label="Retours" value={nbRetours} onChange={setNbRetours} />
+        <div>
+          <p className="text-xs font-medium text-encre/50 uppercase mb-1">Arrivées</p>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label="Vrac" value={nbVrac} onChange={setNbVrac} />
+            <NumberField label="Sacs" value={nbSac} onChange={setNbSac} />
+          </div>
+        </div>
+
+        <div>
+          <p className="text-xs font-medium text-encre/50 uppercase mb-1">Retours</p>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label="Vrac" value={nbRetoursVrac} onChange={setNbRetoursVrac} />
+            <NumberField label="Sacs" value={nbRetoursSac} onChange={setNbRetoursSac} />
+          </div>
         </div>
 
         <textarea
@@ -127,24 +141,116 @@ function ReceptionColis() {
         </button>
       </form>
 
+      <RapportMensuel />
+
       {loading && <p className="text-sm text-encre/50">Chargement…</p>}
 
       <div className="space-y-2">
-        {receptions.map((r) => (
-          <div key={r.id} className="bg-white rounded-xl shadow-sm p-3">
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-sm">{r.transporteur}</span>
-              <span className="text-xs text-encre/40">{formatDate(r.recu_le)}</span>
+        {receptions.map((r) => {
+          const totalRetours = (r.nb_retours_vrac ?? 0) + (r.nb_retours_sac ?? 0) || r.nb_retours
+          return (
+            <div key={r.id} className="bg-white rounded-xl shadow-sm p-3">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm">{r.transporteur}</span>
+                <span className="text-xs text-encre/40">{formatDate(r.recu_le)}</span>
+              </div>
+              <p className="text-sm text-encre/70 mt-1">
+                {r.nb_vrac} vrac · {r.nb_sac} sac{r.nb_sac > 1 ? 's' : ''} reçus
+              </p>
+              {totalRetours > 0 && (
+                <p className="text-sm text-encre/70">
+                  {r.nb_retours_vrac ?? 0} vrac · {r.nb_retours_sac ?? 0} sac
+                  {(r.nb_retours_sac ?? 0) > 1 ? 's' : ''} en retour
+                </p>
+              )}
+              {r.commentaire && <p className="text-sm text-encre/60 mt-1 italic">{r.commentaire}</p>}
+              <p className="text-xs text-encre/40 mt-1">Reçu par {r.profiles?.full_name ?? '—'}</p>
             </div>
-            <p className="text-sm text-encre/70 mt-1">
-              {r.nb_vrac} vrac · {r.nb_sac} sac{r.nb_sac > 1 ? 's' : ''} · {r.nb_retours} retour
-              {r.nb_retours > 1 ? 's' : ''}
-            </p>
-            {r.commentaire && <p className="text-sm text-encre/60 mt-1 italic">{r.commentaire}</p>}
-            <p className="text-xs text-encre/40 mt-1">Reçu par {r.profiles?.full_name ?? '—'}</p>
-          </div>
-        ))}
+          )
+        })}
       </div>
+    </div>
+  )
+}
+
+function moisActuel() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function RapportMensuel() {
+  const [mois, setMois] = useState(moisActuel())
+  const [enCours, setEnCours] = useState(false)
+
+  async function telecharger() {
+    setEnCours(true)
+    try {
+      const debut = `${mois}-01`
+      const [annee, moisNum] = mois.split('-').map(Number)
+      const finDate = new Date(annee, moisNum, 1)
+      const fin = finDate.toISOString().slice(0, 10)
+
+      const { data } = await supabase
+        .from('colis_receptions')
+        .select('*')
+        .gte('recu_le', debut)
+        .lt('recu_le', fin)
+
+      const lignes = (data as ColisReception[]) ?? []
+      const parTransporteur: Record<
+        string,
+        { vrac: number; sac: number; retoursVrac: number; retoursSac: number }
+      > = {}
+      for (const t of TRANSPORTEURS) parTransporteur[t] = { vrac: 0, sac: 0, retoursVrac: 0, retoursSac: 0 }
+
+      for (const l of lignes) {
+        if (!parTransporteur[l.transporteur]) {
+          parTransporteur[l.transporteur] = { vrac: 0, sac: 0, retoursVrac: 0, retoursSac: 0 }
+        }
+        const t = parTransporteur[l.transporteur]
+        t.vrac += l.nb_vrac
+        t.sac += l.nb_sac
+        t.retoursVrac += l.nb_retours_vrac ?? 0
+        t.retoursSac += l.nb_retours_sac ?? 0
+      }
+
+      const rows = Object.entries(parTransporteur).map(([transporteur, v]) => ({
+        Transporteur: transporteur,
+        'Vrac reçus': v.vrac,
+        'Sacs reçus': v.sac,
+        'Total colis reçus': v.vrac + v.sac,
+        'Retours vrac': v.retoursVrac,
+        'Retours sacs': v.retoursSac,
+        'Total retours': v.retoursVrac + v.retoursSac,
+      }))
+
+      const feuille = XLSX.utils.json_to_sheet(rows)
+      const classeur = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(classeur, feuille, 'Résumé')
+      XLSX.writeFile(classeur, `colis-${mois}.xlsx`)
+    } finally {
+      setEnCours(false)
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 flex items-center justify-between gap-2">
+      <div>
+        <p className="text-sm font-medium">Rapport mensuel</p>
+        <input
+          type="month"
+          value={mois}
+          onChange={(e) => setMois(e.target.value)}
+          className="mt-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+        />
+      </div>
+      <button
+        onClick={telecharger}
+        disabled={enCours}
+        className="text-sm font-medium text-white bg-havane rounded-lg px-3 py-2 disabled:opacity-50 shrink-0"
+      >
+        {enCours ? 'Génération…' : '📊 Excel'}
+      </button>
     </div>
   )
 }

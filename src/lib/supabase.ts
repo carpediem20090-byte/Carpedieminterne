@@ -17,6 +17,7 @@ export type Profile = {
   id: string
   full_name: string
   created_at: string
+  role: 'patron' | 'employe'
 }
 
 export type ColisReception = {
@@ -25,6 +26,8 @@ export type ColisReception = {
   nb_vrac: number
   nb_sac: number
   nb_retours: number
+  nb_retours_vrac: number
+  nb_retours_sac: number
   commentaire: string | null
   recu_par: string
   recu_le: string

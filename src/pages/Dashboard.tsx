@@ -10,7 +10,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 
 export default function Dashboard() {
-  const { profile } = useAuth()
+  const { profile, estPatron } = useAuth()
   const [dernieresReleves, setDernieresReleves] = useState<ReleveMessage[]>([])
   const [erreursEnCours, setErreursEnCours] = useState<ColisErreurRemise[]>([])
   const [commandesEnAttente, setCommandesEnAttente] = useState<CommandeFournisseur[]>([])
@@ -30,11 +30,13 @@ export default function Dashboard() {
           .select('*, profiles(full_name)')
           .eq('resolu', false)
           .order('signale_le', { ascending: false }),
-        supabase
-          .from('commandes_fournisseurs')
-          .select('*')
-          .eq('statut', 'en_attente')
-          .order('date_commande', { ascending: false }),
+        estPatron
+          ? supabase
+              .from('commandes_fournisseurs')
+              .select('*')
+              .eq('statut', 'en_attente')
+              .order('date_commande', { ascending: false })
+          : Promise.resolve({ data: [] as CommandeFournisseur[] }),
         supabase
           .from('demandes_clients')
           .select('*')
@@ -48,7 +50,7 @@ export default function Dashboard() {
       setLoading(false)
     }
     charger()
-  }, [])
+  }, [estPatron])
 
   return (
     <div className="space-y-6">
