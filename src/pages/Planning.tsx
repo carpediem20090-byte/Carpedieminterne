@@ -121,6 +121,7 @@ export default function Planning() {
   // Demandes de congés / repos
   const [demandes, setDemandes] = useState<DemandeAbsence[]>([])
   const [type, setType] = useState<'conge' | 'repos'>('repos')
+  const [periode, setPeriode] = useState<'journee' | 'matin' | 'apres_midi'>('journee')
   const [dateDebut, setDateDebut] = useState('')
   const [dateFin, setDateFin] = useState('')
   const [commentaire, setCommentaire] = useState('')
@@ -270,14 +271,18 @@ export default function Planning() {
     setCelluleEnEdition({ ...celluleEnEdition, mode: 'detail' })
   }
 
-  // Tap court = menu rapide (Matin/Après-midi). Appui long = édition précise avec le clavier.
+  // Tap court = menu rapide (Matin/Après-midi), géré par le vrai clic du navigateur
+  // (fiable même quand le tableau défile horizontalement). Appui long = édition
+  // précise avec le clavier, en plus, via un minuteur sur les événements pointer.
   const appuiTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const appuiOrigine = useRef<{ x: number; y: number } | null>(null)
+  const appuiLongDejaOuvert = useRef(false)
 
   function debuterAppui(e: PointerEvent, jour: number, profilId: string) {
     if (!estPatron) return
     appuiOrigine.current = { x: e.clientX, y: e.clientY }
     appuiTimer.current = setTimeout(() => {
+      appuiLongDejaOuvert.current = true
       ouvrirDetail(jour, profilId)
       appuiTimer.current = null
     }, 450)
@@ -287,18 +292,9 @@ export default function Planning() {
     if (!appuiTimer.current || !appuiOrigine.current) return
     const dx = Math.abs(e.clientX - appuiOrigine.current.x)
     const dy = Math.abs(e.clientY - appuiOrigine.current.y)
-    if (dx > 8 || dy > 8) {
+    if (dx > 10 || dy > 10) {
       clearTimeout(appuiTimer.current)
       appuiTimer.current = null
-    }
-  }
-
-  function terminerAppui(jour: number, profilId: string) {
-    // Si le minuteur n'a pas encore déclenché l'édition précise, c'était un tap court
-    if (appuiTimer.current) {
-      clearTimeout(appuiTimer.current)
-      appuiTimer.current = null
-      ouvrirRapide(jour, profilId)
     }
   }
 
@@ -307,6 +303,17 @@ export default function Planning() {
       clearTimeout(appuiTimer.current)
       appuiTimer.current = null
     }
+  }
+
+  // Déclenché par le clic natif du navigateur (fiable sur mobile, même après un
+  // défilement) : ouvre le menu rapide, sauf si l'appui long vient déjà d'ouvrir
+  // l'édition détaillée pour cette même pression.
+  function gererClicCellule(jour: number, profilId: string) {
+    if (appuiLongDejaOuvert.current) {
+      appuiLongDejaOuvert.current = false
+      return
+    }
+    ouvrirRapide(jour, profilId)
   }
 
   function appliquerPreset(debut: string, fin: string) {
@@ -463,6 +470,7 @@ export default function Planning() {
     setEnvoiDemande(true)
     const { error } = await supabase.from('demandes_absence').insert({
       type,
+      periode,
       date_debut: dateDebut,
       date_fin: dateFin,
       commentaire: commentaire.trim() || null,
@@ -473,6 +481,7 @@ export default function Planning() {
       setDateDebut('')
       setDateFin('')
       setCommentaire('')
+      setPeriode('journee')
       chargerDemandes()
     }
   }
@@ -596,16 +605,18 @@ export default function Planning() {
                           <button
                             onPointerDown={(e) => debuterAppui(e, jour, p.id)}
                             onPointerMove={bougerAppui}
-                            onPointerUp={() => terminerAppui(jour, p.id)}
+                            onPointerUp={annulerAppui}
                             onPointerLeave={annulerAppui}
                             onPointerCancel={annulerAppui}
+                            onClick={() => gererClicCellule(jour, p.id)}
                             onContextMenu={(e) => e.preventDefault()}
                             disabled={!estPatron}
+                            style={{ touchAction: 'manipulation' }}
                             title={
                               absence
-                                ? absence.type === 'conge'
-                                  ? 'Congé demandé'
-                                  : 'Repos demandé'
+                                ? `${absence.type === 'conge' ? 'Congé' : 'Repos'} demandé${
+                                    labelPeriode(absence.periode) ? ` (${labelPeriode(absence.periode)})` : ''
+                                  }`
                                 : modif
                                 ? `Changement demandé : ${modif.message}`
                                 : undefined
@@ -624,7 +635,13 @@ export default function Planning() {
                                 : 'text-encre/25'
                             } ${modif && !selectionnee ? 'ring-2 ring-corail' : ''}`}
                           >
-                            {h ? `${formatHeureCourte(h.heure_debut)}-${formatHeureCourte(h.heure_fin)}` : absence ? (absence.type === 'conge' ? 'Congé' : 'Repos') : '—'}
+                            {h
+                              ? `${formatHeureCourte(h.heure_debut)}-${formatHeureCourte(h.heure_fin)}`
+                              : absence
+                              ? `${absence.type === 'conge' ? 'Congé' : 'Repos'}${
+                                  absence.periode === 'matin' ? ' (M)' : absence.periode === 'apres_midi' ? ' (AM)' : ''
+                                }`
+                              : '—'}
                           </button>
                         </td>
                       )
@@ -930,6 +947,26 @@ export default function Planning() {
               Congé
             </button>
           </div>
+          <div className="flex bg-creme rounded-lg p-1">
+            {(
+              [
+                { v: 'journee', label: 'Journée' },
+                { v: 'matin', label: 'Matin' },
+                { v: 'apres_midi', label: 'Après-midi' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setPeriode(opt.v)}
+                className={`flex-1 rounded-md py-2 text-xs font-medium ${
+                  periode === opt.v ? 'bg-havane text-white' : 'text-encre/60'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-xs font-medium mb-1 text-encre/60">Du</label>
@@ -1202,6 +1239,11 @@ function CarteDemande({
               {formatDate(d.date_debut)}
               {d.date_debut !== d.date_fin ? ` → ${formatDate(d.date_fin)}` : ''}
             </span>
+            {labelPeriode(d.periode) && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-creme text-encre/60">
+                {labelPeriode(d.periode)}
+              </span>
+            )}
           </div>
           <p className="text-xs text-encre/40 mt-1">Demandé par {d.profiles?.full_name ?? '—'}</p>
           {d.commentaire && <p className="text-xs text-encre/60 mt-1">{d.commentaire}</p>}
@@ -1214,6 +1256,12 @@ function CarteDemande({
       </div>
     </div>
   )
+}
+
+function labelPeriode(periode: 'journee' | 'matin' | 'apres_midi') {
+  if (periode === 'matin') return 'Matin'
+  if (periode === 'apres_midi') return 'Après-midi'
+  return null
 }
 
 function formatDate(iso: string) {
