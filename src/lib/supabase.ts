@@ -37,6 +37,7 @@ export type ColisReception = {
 export type ColisErreurRemise = {
   id: string
   description: string
+  reponse: string | null
   signale_par: string
   signale_le: string
   resolu: boolean
@@ -122,6 +123,7 @@ export type DemandeClient = {
   id: string
   type: 'presse' | 'produit'
   description: string
+  reponse: string | null
   traitee: boolean
   demandee_par: string
   demandee_le: string
@@ -170,6 +172,30 @@ export type Actu = {
   photo_url: string | null
   auteur_id: string
   cree_le: string
+  profiles?: Profile
+}
+
+export type HoraireTravail = {
+  id: string
+  profil_id: string
+  jour: string
+  heure_debut: string
+  heure_fin: string
+  notes: string | null
+  cree_par: string
+  cree_le: string
+  profiles?: Profile
+}
+
+export type DemandeModificationHoraire = {
+  id: string
+  profil_id: string
+  jour: string | null
+  message: string
+  statut: 'en_attente' | 'traitee'
+  reponse: string | null
+  cree_le: string
+  traitee_le: string | null
   profiles?: Profile
 }
 

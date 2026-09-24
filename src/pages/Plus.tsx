@@ -7,7 +7,6 @@ const modules = [
   { to: '/stock', label: 'Stock & rangement', icon: '🗂️', patron: false },
   { to: '/contacts', label: 'Carnet téléphonique', icon: '📞', patron: false },
   { to: '/demandes', label: 'Demandes clients', icon: '💬', patron: false },
-  { to: '/planning', label: 'Planning', icon: '🗓️', patron: false },
   { to: '/booster', label: 'Produits à booster', icon: '🚀', patron: false },
   { to: '/actus', label: 'Actus & nouveautés', icon: '📰', patron: false },
   { to: '/equipe', label: 'Équipe', icon: '👥', patron: true },
