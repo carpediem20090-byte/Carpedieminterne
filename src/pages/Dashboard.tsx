@@ -30,13 +30,11 @@ export default function Dashboard() {
           .select('*, profiles(full_name)')
           .eq('resolu', false)
           .order('signale_le', { ascending: false }),
-        estPatron
-          ? supabase
-              .from('commandes_fournisseurs')
-              .select('*')
-              .eq('statut', 'en_attente')
-              .order('date_commande', { ascending: false })
-          : Promise.resolve({ data: [] as CommandeFournisseur[] }),
+        supabase
+          .from('commandes_fournisseurs')
+          .select('*')
+          .eq('statut', 'commande')
+          .order('date_commande', { ascending: false }),
         supabase
           .from('demandes_clients')
           .select('*')

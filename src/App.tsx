@@ -11,6 +11,8 @@ import Factures from './pages/Factures'
 import Stock from './pages/Stock'
 import Contacts from './pages/Contacts'
 import DemandesClients from './pages/DemandesClients'
+import AvoirsEchanges from './pages/AvoirsEchanges'
+import Fournisseurs from './pages/Fournisseurs'
 import Planning from './pages/Planning'
 import ProduitsBooster from './pages/ProduitsBooster'
 import Actus from './pages/Actus'
@@ -44,14 +46,7 @@ function PrivateArea() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/releve" element={<Releve />} />
         <Route path="/colis" element={<Colis />} />
-        <Route
-          path="/commandes"
-          element={
-            <RoutePatron>
-              <Commandes />
-            </RoutePatron>
-          }
-        />
+        <Route path="/commandes" element={<Commandes />} />
         <Route
           path="/factures"
           element={
@@ -63,6 +58,8 @@ function PrivateArea() {
         <Route path="/stock" element={<Stock />} />
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/demandes" element={<DemandesClients />} />
+        <Route path="/avoirs" element={<AvoirsEchanges />} />
+        <Route path="/fournisseurs" element={<Fournisseurs />} />
         <Route path="/planning" element={<Planning />} />
         <Route path="/booster" element={<ProduitsBooster />} />
         <Route path="/actus" element={<Actus />} />

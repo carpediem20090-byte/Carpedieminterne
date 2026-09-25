@@ -2,11 +2,13 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
 const modules = [
-  { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: true },
+  { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: false },
+  { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏭', patron: false },
   { to: '/factures', label: 'Factures', icon: '🧾', patron: true },
   { to: '/stock', label: 'Stock & rangement', icon: '🗂️', patron: false },
   { to: '/contacts', label: 'Carnet téléphonique', icon: '📞', patron: false },
   { to: '/demandes', label: 'Demandes clients', icon: '💬', patron: false },
+  { to: '/avoirs', label: 'Avoirs & échanges', icon: '🔄', patron: false },
   { to: '/booster', label: 'Produits à booster', icon: '🚀', patron: false },
   { to: '/actus', label: 'Actus & nouveautés', icon: '📰', patron: false },
   { to: '/equipe', label: 'Équipe', icon: '👥', patron: true },

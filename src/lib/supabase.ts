@@ -64,14 +64,25 @@ export const TRANSPORTEURS = [
   'Autre',
 ] as const
 
+export type Fournisseur = {
+  id: string
+  nom: string
+  telephone: string | null
+  notes: string | null
+  cree_par: string
+  cree_le: string
+}
+
 export type CommandeFournisseur = {
   id: string
-  fournisseur: string
+  fournisseur: string | null
+  fournisseur_id: string | null
   produits: string
   date_commande: string
-  statut: 'en_attente' | 'recue' | 'annulee'
+  statut: 'a_commander' | 'commande' | 'recue' | 'annulee'
   creee_par: string
   profiles?: Profile
+  fournisseurs?: Fournisseur
 }
 
 export type ReceptionFournisseur = {
@@ -130,6 +141,22 @@ export type DemandeClient = {
   traitee_par: string | null
   traitee_le: string | null
   profiles?: Profile
+}
+
+export type AvoirEchange = {
+  id: string
+  type: 'avoir_client' | 'echange_client' | 'produit_casse'
+  description: string
+  montant: number | null
+  reponse: string | null
+  traite: boolean
+  signale_par: string
+  signale_le: string
+  traite_par: string | null
+  traite_le: string | null
+  fournisseur_id: string | null
+  profiles?: Profile
+  fournisseurs?: Fournisseur
 }
 
 export type DemandeAbsence = {
