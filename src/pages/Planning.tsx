@@ -518,14 +518,54 @@ export default function Planning() {
     return (hf * 60 + mf - (hd * 60 + md)) / 60
   }
 
-  // Total d'heures calculé automatiquement à partir des créneaux saisis dans le
-  // calendrier "Horaires du mois" ci-dessus, pour un profil et un mois donnés.
-  function heuresCalculeesDuPlanning(profilId: string, moisStr: string) {
-    return arrondi(
-      horairesTous
-        .filter((h) => h.profil_id === profilId && h.jour.startsWith(moisStr))
-        .reduce((total, h) => total + dureeHeures(h), 0)
+  function jourEstConge(profilId: string, iso: string) {
+    return demandes.some(
+      (d) => d.demandee_par === profilId && d.type === 'conge' && d.date_debut <= iso && d.date_fin >= iso
     )
+  }
+
+  // Heures comptées pour les jours de congé : 7h par jour, plafonné à 5 jours
+  // par semaine — quels que soient les jours pris (le repos peut tomber n'importe
+  // quel jour, pas forcément le week-end).
+  function heuresCongesDuMois(profilId: string, moisStr: string) {
+    const nbJours = joursDansMois(moisStr)
+    const [annee, m] = moisStr.split('-').map(Number)
+    const joursCongeParSemaine = new Map<string, number>()
+    for (let jour = 1; jour <= nbJours; jour++) {
+      const iso = `${moisStr}-${String(jour).padStart(2, '0')}`
+      if (!jourEstConge(profilId, iso)) continue
+      const cleSemaine = toISODate(lundiDeSemaine(new Date(annee, m - 1, jour)))
+      joursCongeParSemaine.set(cleSemaine, (joursCongeParSemaine.get(cleSemaine) ?? 0) + 1)
+    }
+    let total = 0
+    joursCongeParSemaine.forEach((nb) => {
+      total += Math.min(nb, 5) * 7
+    })
+    return total
+  }
+
+  // Total d'heures calculé automatiquement à partir des créneaux saisis dans le
+  // calendrier "Horaires du mois" ci-dessus, plus les congés (7h/jour ouvré),
+  // pour un profil et un mois donnés.
+  function heuresCalculeesDuPlanning(profilId: string, moisStr: string) {
+    const travaillees = horairesTous
+      .filter((h) => h.profil_id === profilId && h.jour.startsWith(moisStr))
+      .reduce((total, h) => total + dureeHeures(h), 0)
+    return arrondi(travaillees + heuresCongesDuMois(profilId, moisStr))
+  }
+
+  // Total sur l'année en cours (celle du mois affiché) : pour chaque mois, on
+  // prend les heures déjà enregistrées si elles existent, sinon le calcul
+  // automatique (planning + congés).
+  function heuresAnnee(profilId: string) {
+    const annee = mois.slice(0, 4)
+    let total = 0
+    for (let m = 1; m <= 12; m++) {
+      const moisStr = `${annee}-${String(m).padStart(2, '0')}`
+      const existant = heures.find((h) => h.profil_id === profilId && h.mois === `${moisStr}-01`)
+      total += existant?.heures_travaillees ?? heuresCalculeesDuPlanning(profilId, moisStr)
+    }
+    return arrondi(total)
   }
 
   // Solde reporté = somme des écarts (travaillées - contrat) des mois précédents
@@ -1077,6 +1117,7 @@ export default function Planning() {
           {profilsPlanning.map((p) => {
             const h = heuresDuMoisPour(p.id)
             const calcule = heuresCalculeesDuPlanning(p.id, mois)
+            const totalAnnee = heuresAnnee(p.id)
             const travaillees = h?.heures_travaillees ?? null
             const contrat = h?.heures_contrat ?? 151.67
             const ecartMois = travaillees !== null ? travaillees - contrat : 0
@@ -1095,7 +1136,10 @@ export default function Planning() {
                       {h?.supp_payees && ' — heures sup payées'}
                     </p>
                     <p className="text-xs mt-0.5 text-encre/40">
-                      Calculé depuis le planning : {calcule}h
+                      Calculé depuis le planning (dont congés) : {calcule}h
+                    </p>
+                    <p className="text-xs mt-0.5 text-encre/40">
+                      Total sur l'année {mois.slice(0, 4)} : {totalAnnee}h
                     </p>
                     {reporte !== 0 && (
                       <p className="text-xs mt-0.5 text-encre/50">

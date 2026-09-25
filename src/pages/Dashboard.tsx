@@ -77,6 +77,38 @@ export default function Dashboard() {
 
       <div className="bg-white rounded-2xl shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
+          <h2 className="font-medium">Erreurs de remise en cours</h2>
+          <Link to="/colis" className="text-sm text-havane">
+            Voir tout
+          </Link>
+        </div>
+
+        {loading && <p className="text-sm text-encre/50">Chargement…</p>}
+
+        {!loading && erreursEnCours.length === 0 && (
+          <p className="text-sm text-encre/50">Aucune erreur en cours.</p>
+        )}
+
+        <div className="space-y-3">
+          {erreursEnCours.slice(0, 5).map((e) => (
+            <div key={e.id} className="text-sm">
+              <p>{e.description}</p>
+              <p className="text-xs text-encre/40">
+                {e.profiles?.full_name ?? 'Quelqu’un'} ·{' '}
+                {new Date(e.signale_le).toLocaleString('fr-FR', {
+                  day: 'numeric',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm p-4">
+        <div className="flex items-center justify-between mb-3">
           <h2 className="font-medium">Dernières infos — Relève</h2>
           <Link to="/releve" className="text-sm text-havane">
             Voir tout
