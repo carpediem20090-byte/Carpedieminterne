@@ -56,10 +56,15 @@ export default function Commandes() {
     }
   }
 
-  async function marquerCommandee(ids: string[], fournisseurChoisi: string) {
+  async function assignerFournisseur(ids: string[], fournisseurChoisi: string) {
+    await supabase.from('commandes_fournisseurs').update({ fournisseur_id: fournisseurChoisi }).in('id', ids)
+    charger()
+  }
+
+  async function marquerCommandee(ids: string[]) {
     await supabase
       .from('commandes_fournisseurs')
-      .update({ fournisseur_id: fournisseurChoisi, statut: 'commande', date_commande: new Date().toISOString() })
+      .update({ statut: 'commande', date_commande: new Date().toISOString() })
       .in('id', ids)
     charger()
   }
@@ -146,6 +151,7 @@ export default function Commandes() {
               key={cle}
               items={items}
               fournisseurs={fournisseurs}
+              onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
             />
@@ -155,6 +161,7 @@ export default function Commandes() {
               key={c.id}
               items={[c]}
               fournisseurs={fournisseurs}
+              onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
             />
@@ -209,27 +216,37 @@ export default function Commandes() {
 function GroupeACommander({
   items,
   fournisseurs,
+  onAssignerFournisseur,
   onCommandee,
   onAnnuler,
 }: {
   items: CommandeFournisseur[]
   fournisseurs: Fournisseur[]
-  onCommandee: (ids: string[], fournisseurId: string) => void
+  onAssignerFournisseur: (ids: string[], fournisseurId: string) => Promise<void>
+  onCommandee: (ids: string[]) => Promise<void>
   onAnnuler: (id: string) => void
 }) {
   const [ouvert, setOuvert] = useState(false)
   const [fournisseurId, setFournisseurId] = useState(items[0].fournisseur_id ?? '')
-  const [envoi, setEnvoi] = useState(false)
+  const [envoiAssignation, setEnvoiAssignation] = useState(false)
+  const [envoiCommande, setEnvoiCommande] = useState(false)
   const plusieurs = items.length > 1
 
-  async function confirmer() {
-    if (!fournisseurId) return
-    setEnvoi(true)
-    await onCommandee(
+  async function changerFournisseur(valeur: string) {
+    setFournisseurId(valeur)
+    if (!valeur) return
+    setEnvoiAssignation(true)
+    await onAssignerFournisseur(
       items.map((c) => c.id),
-      fournisseurId
+      valeur
     )
-    setEnvoi(false)
+    setEnvoiAssignation(false)
+  }
+
+  async function confirmerCommande() {
+    setEnvoiCommande(true)
+    await onCommandee(items.map((c) => c.id))
+    setEnvoiCommande(false)
     setOuvert(false)
   }
 
@@ -261,7 +278,7 @@ function GroupeACommander({
           <label className="block text-xs font-medium mb-1 text-encre/60">Fournisseur</label>
           <select
             value={fournisseurId}
-            onChange={(e) => setFournisseurId(e.target.value)}
+            onChange={(e) => changerFournisseur(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane bg-white"
           >
             <option value="">Choisir…</option>
@@ -271,13 +288,15 @@ function GroupeACommander({
               </option>
             ))}
           </select>
-          <div className="flex gap-2">
+          {envoiAssignation && <p className="text-xs text-encre/40">Enregistrement du fournisseur…</p>}
+
+          <div className="flex gap-2 pt-1">
             <button
-              onClick={confirmer}
-              disabled={envoi || !fournisseurId}
+              onClick={confirmerCommande}
+              disabled={envoiCommande || !fournisseurId}
               className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
             >
-              {envoi ? 'Enregistrement…' : plusieurs ? 'Marquer tout commandé' : 'Marquer commandé'}
+              {envoiCommande ? 'Enregistrement…' : plusieurs ? 'Marquer tout commandé' : 'Marquer commandé'}
             </button>
             {!plusieurs && (
               <button
@@ -288,6 +307,9 @@ function GroupeACommander({
               </button>
             )}
           </div>
+          {!fournisseurId && (
+            <p className="text-xs text-encre/40">Choisis d'abord le fournisseur, puis valide une fois la commande vraiment passée.</p>
+          )}
           {plusieurs && (
             <div className="space-y-1 pt-1">
               {items.map((c) => (
