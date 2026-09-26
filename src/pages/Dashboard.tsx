@@ -27,7 +27,7 @@ export default function Dashboard() {
           .limit(5),
         supabase
           .from('colis_erreurs_remise')
-          .select('*, profiles(full_name)')
+          .select('*, profiles!signale_par(full_name)')
           .eq('resolu', false)
           .order('signale_le', { ascending: false }),
         supabase
