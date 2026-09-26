@@ -74,6 +74,12 @@ export default function Commandes() {
     charger()
   }
 
+  async function supprimerCommande(id: string) {
+    if (!window.confirm('Supprimer définitivement cette commande ? Cette action est irréversible.')) return
+    await supabase.from('commandes_fournisseurs').delete().eq('id', id)
+    charger()
+  }
+
   const aCommander = commandes.filter((c) => c.statut === 'a_commander')
   const commandees = commandes.filter((c) => c.statut === 'commande')
   const historique = commandes.filter((c) => c.statut === 'recue' || c.statut === 'annulee')
@@ -154,6 +160,7 @@ export default function Commandes() {
               onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
+              onSupprimer={supprimerCommande}
             />
           ))}
           {sansFournisseur.map((c) => (
@@ -164,6 +171,7 @@ export default function Commandes() {
               onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
+              onSupprimer={supprimerCommande}
             />
           ))}
         </div>
@@ -179,6 +187,7 @@ export default function Commandes() {
               ouverte={commandeOuverte === c.id}
               onToggle={() => setCommandeOuverte(commandeOuverte === c.id ? null : c.id)}
               onReceptionEnregistree={charger}
+              onSupprimer={() => supprimerCommande(c.id)}
             />
           ))}
         </div>
@@ -201,6 +210,7 @@ export default function Commandes() {
                 ouverte={commandeOuverte === c.id}
                 onToggle={() => setCommandeOuverte(commandeOuverte === c.id ? null : c.id)}
                 onReceptionEnregistree={charger}
+                onSupprimer={() => supprimerCommande(c.id)}
               />
             ))}
         </div>
@@ -219,12 +229,14 @@ function GroupeACommander({
   onAssignerFournisseur,
   onCommandee,
   onAnnuler,
+  onSupprimer,
 }: {
   items: CommandeFournisseur[]
   fournisseurs: Fournisseur[]
   onAssignerFournisseur: (ids: string[], fournisseurId: string) => Promise<void>
   onCommandee: (ids: string[]) => Promise<void>
   onAnnuler: (id: string) => void
+  onSupprimer: (id: string) => void
 }) {
   const [ouvert, setOuvert] = useState(false)
   const [fournisseurId, setFournisseurId] = useState(items[0].fournisseur_id ?? '')
@@ -310,14 +322,24 @@ function GroupeACommander({
           {!fournisseurId && (
             <p className="text-xs text-encre/40">Choisis d'abord le fournisseur, puis valide une fois la commande vraiment passée.</p>
           )}
+          {!plusieurs && (
+            <button onClick={() => onSupprimer(items[0].id)} className="text-xs text-corail underline">
+              Supprimer définitivement
+            </button>
+          )}
           {plusieurs && (
             <div className="space-y-1 pt-1">
               {items.map((c) => (
                 <div key={c.id} className="flex items-center justify-between text-xs text-encre/50">
                   <span>{c.produits}</span>
-                  <button onClick={() => onAnnuler(c.id)} className="text-corail underline shrink-0 ml-2">
-                    Retirer
-                  </button>
+                  <span className="flex items-center gap-2 shrink-0 ml-2">
+                    <button onClick={() => onAnnuler(c.id)} className="text-corail underline">
+                      Retirer
+                    </button>
+                    <button onClick={() => onSupprimer(c.id)} className="text-corail underline">
+                      Supprimer
+                    </button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -333,11 +355,13 @@ function CommandeCard({
   ouverte,
   onToggle,
   onReceptionEnregistree,
+  onSupprimer,
 }: {
   commande: CommandeFournisseur
   ouverte: boolean
   onToggle: () => void
   onReceptionEnregistree: () => void
+  onSupprimer: () => void
 }) {
   return (
     <div className="bg-white rounded-xl shadow-sm p-3">
@@ -366,6 +390,13 @@ function CommandeCard({
         <FormulaireReception commandeId={commande.id} onEnregistree={onReceptionEnregistree} />
       )}
       {ouverte && commande.statut === 'recue' && <DetailReception commandeId={commande.id} />}
+      {ouverte && (
+        <div className="mt-3 pt-3 border-t border-gray-100">
+          <button onClick={onSupprimer} className="text-xs text-corail underline">
+            Supprimer définitivement
+          </button>
+        </div>
+      )}
     </div>
   )
 }
