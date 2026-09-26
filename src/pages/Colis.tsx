@@ -44,8 +44,10 @@ function ReceptionColis() {
   const [receptions, setReceptions] = useState<ColisReception[]>([])
   const [loading, setLoading] = useState(true)
   const [transporteur, setTransporteur] = useState<string>(TRANSPORTEURS[0])
+  const [dateReception, setDateReception] = useState(dateDuJour())
   const [nbVrac, setNbVrac] = useState('')
   const [nbSac, setNbSac] = useState('')
+  const [nbTotalBippe, setNbTotalBippe] = useState('')
   const [nbRetoursVrac, setNbRetoursVrac] = useState('')
   const [nbRetoursSac, setNbRetoursSac] = useState('')
   const [commentaire, setCommentaire] = useState('')
@@ -74,15 +76,19 @@ function ReceptionColis() {
       transporteur,
       nb_vrac: Number(nbVrac) || 0,
       nb_sac: Number(nbSac) || 0,
+      nb_total_bippe: nbTotalBippe ? Number(nbTotalBippe) : null,
       nb_retours_vrac: Number(nbRetoursVrac) || 0,
       nb_retours_sac: Number(nbRetoursSac) || 0,
       commentaire: commentaire.trim() || null,
       recu_par: profile.id,
+      recu_le: dateHeureDepuisDate(dateReception),
     })
     setEnvoi(false)
     if (!error) {
+      setDateReception(dateDuJour())
       setNbVrac('')
       setNbSac('')
+      setNbTotalBippe('')
       setNbRetoursVrac('')
       setNbRetoursSac('')
       setCommentaire('')
@@ -109,10 +115,25 @@ function ReceptionColis() {
         </div>
 
         <div>
+          <label className="block text-sm font-medium mb-1">Date de réception</label>
+          <input
+            type="date"
+            value={dateReception}
+            onChange={(e) => setDateReception(e.target.value)}
+            max={dateDuJour()}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
+          />
+          <p className="text-xs text-encre/40 mt-1">Oublié un jour ? Change juste la date pour rattraper.</p>
+        </div>
+
+        <div>
           <p className="text-xs font-medium text-encre/50 uppercase mb-1">Arrivées</p>
           <div className="grid grid-cols-2 gap-2">
             <NumberField label="Vrac" value={nbVrac} onChange={setNbVrac} />
             <NumberField label="Sacs" value={nbSac} onChange={setNbSac} />
+          </div>
+          <div className="mt-2">
+            <NumberField label="Total bipé sur la machine" value={nbTotalBippe} onChange={setNbTotalBippe} />
           </div>
         </div>
 
@@ -157,8 +178,10 @@ function ReceptionColis() {
 function CarteReception({ r, onModifiee }: { r: ColisReception; onModifiee: () => void }) {
   const [ouverte, setOuverte] = useState(false)
   const [transporteur, setTransporteur] = useState(r.transporteur)
+  const [dateReception, setDateReception] = useState(dateDepuisIso(r.recu_le))
   const [nbVrac, setNbVrac] = useState(String(r.nb_vrac))
   const [nbSac, setNbSac] = useState(String(r.nb_sac))
+  const [nbTotalBippe, setNbTotalBippe] = useState(r.nb_total_bippe != null ? String(r.nb_total_bippe) : '')
   const [nbRetoursVrac, setNbRetoursVrac] = useState(String(r.nb_retours_vrac ?? 0))
   const [nbRetoursSac, setNbRetoursSac] = useState(String(r.nb_retours_sac ?? 0))
   const [commentaire, setCommentaire] = useState(r.commentaire ?? '')
@@ -168,8 +191,10 @@ function CarteReception({ r, onModifiee }: { r: ColisReception; onModifiee: () =
 
   function ouvrir() {
     setTransporteur(r.transporteur)
+    setDateReception(dateDepuisIso(r.recu_le))
     setNbVrac(String(r.nb_vrac))
     setNbSac(String(r.nb_sac))
+    setNbTotalBippe(r.nb_total_bippe != null ? String(r.nb_total_bippe) : '')
     setNbRetoursVrac(String(r.nb_retours_vrac ?? 0))
     setNbRetoursSac(String(r.nb_retours_sac ?? 0))
     setCommentaire(r.commentaire ?? '')
@@ -182,8 +207,10 @@ function CarteReception({ r, onModifiee }: { r: ColisReception; onModifiee: () =
       .from('colis_receptions')
       .update({
         transporteur,
+        recu_le: dateHeureDepuisDate(dateReception),
         nb_vrac: Number(nbVrac) || 0,
         nb_sac: Number(nbSac) || 0,
+        nb_total_bippe: nbTotalBippe ? Number(nbTotalBippe) : null,
         nb_retours_vrac: Number(nbRetoursVrac) || 0,
         nb_retours_sac: Number(nbRetoursSac) || 0,
         commentaire: commentaire.trim() || null,
@@ -203,6 +230,7 @@ function CarteReception({ r, onModifiee }: { r: ColisReception; onModifiee: () =
         </div>
         <p className="text-sm text-encre/70 mt-1">
           {r.nb_vrac} vrac · {r.nb_sac} sac{r.nb_sac > 1 ? 's' : ''} reçus
+          {r.nb_total_bippe != null ? ` · ${r.nb_total_bippe} bipés (machine)` : ''}
         </p>
         {totalRetours > 0 && (
           <p className="text-sm text-encre/70">
@@ -234,10 +262,24 @@ function CarteReception({ r, onModifiee }: { r: ColisReception; onModifiee: () =
           </div>
 
           <div>
+            <label className="block text-sm font-medium mb-1">Date de réception</label>
+            <input
+              type="date"
+              value={dateReception}
+              onChange={(e) => setDateReception(e.target.value)}
+              max={dateDuJour()}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
+            />
+          </div>
+
+          <div>
             <p className="text-xs font-medium text-encre/50 uppercase mb-1">Arrivées</p>
             <div className="grid grid-cols-2 gap-2">
               <NumberField label="Vrac" value={nbVrac} onChange={setNbVrac} />
               <NumberField label="Sacs" value={nbSac} onChange={setNbSac} />
+            </div>
+            <div className="mt-2">
+              <NumberField label="Total bipé sur la machine" value={nbTotalBippe} onChange={setNbTotalBippe} />
             </div>
           </div>
 
@@ -613,4 +655,21 @@ function formatDate(iso: string) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+// Date du jour au format 'AAAA-MM-JJ', pour préremplir/limiter les champs <input type="date">.
+function dateDuJour() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Extrait la partie 'AAAA-MM-JJ' d'une date ISO stockée en base, pour préremplir un <input type="date">.
+function dateDepuisIso(iso: string) {
+  return iso.slice(0, 10)
+}
+
+// Reconstruit un timestamp ISO à midi à partir d'une date 'AAAA-MM-JJ' choisie dans le formulaire
+// (permet de rattraper un jour oublié sans se soucier du fuseau horaire).
+function dateHeureDepuisDate(date: string) {
+  return new Date(`${date}T12:00:00`).toISOString()
 }

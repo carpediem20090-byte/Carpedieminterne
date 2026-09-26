@@ -28,6 +28,7 @@ export type ColisReception = {
   nb_retours: number
   nb_retours_vrac: number
   nb_retours_sac: number
+  nb_total_bippe: number | null // total de colis scannés/bipés sur la machine du transporteur
   commentaire: string | null
   recu_par: string
   recu_le: string

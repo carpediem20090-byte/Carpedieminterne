@@ -15,3 +15,7 @@ body {
 input, select, textarea, button {
   font-size: 16px; /* évite le zoom auto sur iOS */
 }
+
+button, a {
+  touch-action: manipulation; /* évite le délai/double-tap zoom sur iOS qui rend les appuis peu fiables */
+}

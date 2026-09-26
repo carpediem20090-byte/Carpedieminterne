@@ -14,7 +14,10 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="bg-havane text-white px-4 py-3 flex items-center justify-between">
+      <header
+        className="bg-havane text-white px-4 py-3 flex items-center justify-between"
+        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+      >
         <span className="font-semibold">Carpe Diem — Gestion</span>
         <div className="flex items-center gap-3 text-sm">
           {profile && <span className="text-white/80">{profile.full_name}</span>}
@@ -24,11 +27,14 @@ export default function Layout() {
         </div>
       </header>
 
-      <main className="flex-1 pb-20 max-w-2xl w-full mx-auto px-4 py-4">
+      <main className="flex-1 max-w-2xl w-full mx-auto px-4 py-4" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}>
         <Outlet />
       </main>
 
-      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex">
+      <nav
+        className="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 flex"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         {tabs.map((tab) => (
           <NavLink
             key={tab.to}
