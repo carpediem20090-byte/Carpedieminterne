@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   supabase,
-  type ColisErreurRemise,
   type CommandeFournisseur,
   type DemandeClient,
   type ReleveMessage,
@@ -12,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext'
 export default function Dashboard() {
   const { profile, estPatron } = useAuth()
   const [dernieresReleves, setDernieresReleves] = useState<ReleveMessage[]>([])
-  const [erreursEnCours, setErreursEnCours] = useState<ColisErreurRemise[]>([])
+  const [erreursEnCours, setErreursEnCours] = useState<ReleveMessage[]>([])
   const [commandesEnAttente, setCommandesEnAttente] = useState<CommandeFournisseur[]>([])
   const [demandesEnAttente, setDemandesEnAttente] = useState<DemandeClient[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,10 +25,11 @@ export default function Dashboard() {
           .order('cree_le', { ascending: false })
           .limit(5),
         supabase
-          .from('colis_erreurs_remise')
-          .select('*, profiles!signale_par(full_name)')
-          .eq('resolu', false)
-          .order('signale_le', { ascending: false }),
+          .from('releve')
+          .select('*, profiles(full_name)')
+          .eq('categorie', 'colis')
+          .eq('traite', false)
+          .order('cree_le', { ascending: false }),
         supabase
           .from('commandes_fournisseurs')
           .select('*')
@@ -42,7 +42,7 @@ export default function Dashboard() {
           .order('demandee_le', { ascending: false }),
       ])
       setDernieresReleves((releve.data as ReleveMessage[]) ?? [])
-      setErreursEnCours((erreurs.data as ColisErreurRemise[]) ?? [])
+      setErreursEnCours((erreurs.data as ReleveMessage[]) ?? [])
       setCommandesEnAttente((commandes.data as CommandeFournisseur[]) ?? [])
       setDemandesEnAttente((demandes.data as DemandeClient[]) ?? [])
       setLoading(false)
@@ -63,20 +63,20 @@ export default function Dashboard() {
 
       {erreursEnCours.length > 0 && (
         <Link
-          to="/colis"
+          to="/releve"
           className="block bg-corail text-white rounded-2xl p-4 shadow-sm"
         >
           <p className="font-medium">
             ⚠️ {erreursEnCours.length} erreur{erreursEnCours.length > 1 ? 's' : ''} de remise à traiter
           </p>
-          <p className="text-sm text-white/90 mt-1">{erreursEnCours[0].description}</p>
+          <p className="text-sm text-white/90 mt-1">{erreursEnCours[0].message}</p>
         </Link>
       )}
 
       <div className="bg-white rounded-2xl shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-medium">Erreurs de remise en cours</h2>
-          <Link to="/colis" className="text-sm text-havane">
+          <Link to="/releve" className="text-sm text-havane">
             Voir tout
           </Link>
         </div>
@@ -90,10 +90,10 @@ export default function Dashboard() {
         <div className="space-y-3">
           {erreursEnCours.slice(0, 5).map((e) => (
             <div key={e.id} className="text-sm">
-              <p>{e.description}</p>
+              <p>{e.message}</p>
               <p className="text-xs text-encre/40">
                 {e.profiles?.full_name ?? 'Quelqu’un'} ·{' '}
-                {new Date(e.signale_le).toLocaleString('fr-FR', {
+                {new Date(e.cree_le).toLocaleString('fr-FR', {
                   day: 'numeric',
                   month: 'short',
                   hour: '2-digit',

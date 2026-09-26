@@ -35,23 +35,18 @@ export type ColisReception = {
   profiles?: Profile
 }
 
-export type ColisErreurRemise = {
-  id: string
-  description: string
-  reponse: string | null
-  signale_par: string
-  signale_le: string
-  resolu: boolean
-  resolu_par: string | null
-  resolu_le: string | null
-  profiles?: Profile
-}
+export type CategorieReleve = 'info' | 'colis' | 'mission' | 'autre'
 
 export type ReleveMessage = {
   id: string
   message: string
+  categorie: CategorieReleve
+  reponse: string | null
+  traite: boolean
   auteur_id: string
   cree_le: string
+  traite_par: string | null
+  traite_le: string | null
   profiles?: Profile
 }
 
