@@ -33,7 +33,7 @@ export default function Releve() {
     setLoading(true)
     const { data } = await supabase
       .from('releve')
-      .select('*, profiles(full_name)')
+      .select('*, profiles!auteur_id(full_name)')
       .order('cree_le', { ascending: false })
       .limit(100)
     setMessages((data as ReleveMessage[]) ?? [])

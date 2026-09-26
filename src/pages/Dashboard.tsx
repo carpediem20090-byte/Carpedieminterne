@@ -21,12 +21,12 @@ export default function Dashboard() {
       const [releve, erreurs, commandes, demandes] = await Promise.all([
         supabase
           .from('releve')
-          .select('*, profiles(full_name)')
+          .select('*, profiles!auteur_id(full_name)')
           .order('cree_le', { ascending: false })
           .limit(5),
         supabase
           .from('releve')
-          .select('*, profiles(full_name)')
+          .select('*, profiles!auteur_id(full_name)')
           .eq('categorie', 'colis')
           .eq('traite', false)
           .order('cree_le', { ascending: false }),
