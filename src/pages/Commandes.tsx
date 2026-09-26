@@ -5,6 +5,7 @@ import {
   urlDocument,
   type CommandeFournisseur,
   type Fournisseur,
+  type ProduitCatalogue,
   type ReceptionFournisseur,
 } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -13,6 +14,7 @@ export default function Commandes() {
   const { profile } = useAuth()
   const [commandes, setCommandes] = useState<CommandeFournisseur[]>([])
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([])
+  const [catalogue, setCatalogue] = useState<ProduitCatalogue[]>([])
   const [loading, setLoading] = useState(true)
   const [fournisseurId, setFournisseurId] = useState('')
   const [produits, setProduits] = useState('')
@@ -22,15 +24,17 @@ export default function Commandes() {
 
   async function charger() {
     setLoading(true)
-    const [c, f] = await Promise.all([
+    const [c, f, p] = await Promise.all([
       supabase
         .from('commandes_fournisseurs')
         .select('*, profiles(full_name), fournisseurs(nom, telephone)')
         .order('date_commande', { ascending: false }),
       supabase.from('fournisseurs').select('*').order('nom', { ascending: true }),
+      supabase.from('produits_catalogue').select('*').order('nom', { ascending: true }),
     ])
     setCommandes((c.data as CommandeFournisseur[]) ?? [])
     setFournisseurs((f.data as Fournisseur[]) ?? [])
+    setCatalogue((p.data as ProduitCatalogue[]) ?? [])
     setLoading(false)
   }
 
@@ -80,6 +84,37 @@ export default function Commandes() {
     charger()
   }
 
+  async function ajouterProduitCatalogue(fournisseurCible: string, nom: string) {
+    if (!profile || !nom.trim()) return null
+    const { data, error } = await supabase
+      .from('produits_catalogue')
+      .insert({ fournisseur_id: fournisseurCible, nom: nom.trim(), cree_par: profile.id })
+      .select()
+      .single()
+    if (error || !data) return null
+    const produit = data as ProduitCatalogue
+    setCatalogue((prev) => [...prev, produit].sort((a, b) => a.nom.localeCompare(b.nom)))
+    return produit
+  }
+
+  async function supprimerProduitCatalogue(id: string) {
+    if (!window.confirm('Retirer ce produit du catalogue ?')) return
+    await supabase.from('produits_catalogue').delete().eq('id', id)
+    setCatalogue((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  async function validerCommandeRapide(fournisseurCible: string, texteProduits: string) {
+    if (!profile || !texteProduits.trim()) return
+    await supabase.from('commandes_fournisseurs').insert({
+      fournisseur_id: fournisseurCible,
+      produits: texteProduits.trim(),
+      creee_par: profile.id,
+      statut: 'commande',
+      date_commande: new Date().toISOString(),
+    })
+    charger()
+  }
+
   const aCommander = commandes.filter((c) => c.statut === 'a_commander')
   const commandees = commandes.filter((c) => c.statut === 'commande')
   const historique = commandes.filter((c) => c.statut === 'recue' || c.statut === 'annulee')
@@ -105,9 +140,17 @@ export default function Commandes() {
       <div>
         <h1 className="text-lg font-semibold text-havane">Commandes fournisseurs</h1>
         <p className="text-sm text-encre/60">
-          Note un produit à commander, puis marque-le "commandé" une fois passé chez le fournisseur.
+          Commande rapide via le catalogue d'un fournisseur, ou note un produit à commander plus tard.
         </p>
       </div>
+
+      <CommandeRapide
+        fournisseurs={fournisseurs}
+        catalogue={catalogue}
+        onAjouterCatalogue={ajouterProduitCatalogue}
+        onSupprimerCatalogue={supprimerProduitCatalogue}
+        onValider={validerCommandeRapide}
+      />
 
       <form onSubmit={creerCommande} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
         <div>
@@ -345,6 +388,210 @@ function GroupeACommander({
             </div>
           )}
         </div>
+      )}
+    </div>
+  )
+}
+
+function CommandeRapide({
+  fournisseurs,
+  catalogue,
+  onAjouterCatalogue,
+  onSupprimerCatalogue,
+  onValider,
+}: {
+  fournisseurs: Fournisseur[]
+  catalogue: ProduitCatalogue[]
+  onAjouterCatalogue: (fournisseurId: string, nom: string) => Promise<ProduitCatalogue | null>
+  onSupprimerCatalogue: (id: string) => void
+  onValider: (fournisseurId: string, texte: string) => Promise<void>
+}) {
+  const [fournisseurId, setFournisseurId] = useState('')
+  const [panier, setPanier] = useState<Map<string, { nom: string; quantite: number }>>(new Map())
+  const [nouveauProduit, setNouveauProduit] = useState('')
+  const [ajoutEnCours, setAjoutEnCours] = useState(false)
+  const [validation, setValidation] = useState(false)
+  const [modeEdition, setModeEdition] = useState(false)
+
+  const produitsFournisseur = catalogue.filter((p) => p.fournisseur_id === fournisseurId)
+  const fournisseurChoisi = fournisseurs.find((f) => f.id === fournisseurId)
+
+  function ajouterAuPanier(id: string, nom: string) {
+    setPanier((prev) => {
+      const copie = new Map(prev)
+      const existant = copie.get(id)
+      copie.set(id, { nom, quantite: (existant?.quantite ?? 0) + 1 })
+      return copie
+    })
+  }
+
+  function changerQuantite(id: string, delta: number) {
+    setPanier((prev) => {
+      const copie = new Map(prev)
+      const existant = copie.get(id)
+      if (!existant) return prev
+      const nouvelleQuantite = existant.quantite + delta
+      if (nouvelleQuantite <= 0) {
+        copie.delete(id)
+      } else {
+        copie.set(id, { ...existant, quantite: nouvelleQuantite })
+      }
+      return copie
+    })
+  }
+
+  async function ajouterNouveauProduit() {
+    if (!nouveauProduit.trim() || !fournisseurId) return
+    setAjoutEnCours(true)
+    const produit = await onAjouterCatalogue(fournisseurId, nouveauProduit)
+    setAjoutEnCours(false)
+    setNouveauProduit('')
+    if (produit) ajouterAuPanier(produit.id, produit.nom)
+  }
+
+  async function valider() {
+    if (!fournisseurId || panier.size === 0) return
+    const texte = Array.from(panier.values())
+      .map((item) => `${item.quantite}x ${item.nom}`)
+      .join(', ')
+    setValidation(true)
+    await onValider(fournisseurId, texte)
+    setValidation(false)
+    setPanier(new Map())
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+      <div>
+        <h2 className="font-medium text-sm text-havane">Commande rapide</h2>
+        <p className="text-xs text-encre/50">
+          Choisis le fournisseur, clique sur ce que tu veux commander, puis valide.
+        </p>
+      </div>
+
+      <select
+        value={fournisseurId}
+        onChange={(e) => {
+          setFournisseurId(e.target.value)
+          setPanier(new Map())
+          setModeEdition(false)
+        }}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
+      >
+        <option value="">Choisir un fournisseur…</option>
+        {fournisseurs.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.nom}
+          </option>
+        ))}
+      </select>
+
+      {fournisseurId && (
+        <>
+          {produitsFournisseur.length > 0 && (
+            <div>
+              <div className="flex flex-wrap gap-2">
+                {produitsFournisseur.map((p) => {
+                  const dansLePanier = panier.get(p.id)
+                  if (modeEdition) {
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => onSupprimerCatalogue(p.id)}
+                        className="px-3 py-1.5 rounded-full text-sm border border-corail text-corail bg-corail/5"
+                      >
+                        {p.nom} ✕
+                      </button>
+                    )
+                  }
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => ajouterAuPanier(p.id, p.nom)}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                        dansLePanier
+                          ? 'bg-havane text-white border-havane'
+                          : 'bg-white text-encre/80 border-gray-300'
+                      }`}
+                    >
+                      {p.nom}
+                      {dansLePanier ? ` (${dansLePanier.quantite})` : ''}
+                    </button>
+                  )
+                })}
+              </div>
+              <button
+                onClick={() => setModeEdition(!modeEdition)}
+                className="text-xs text-havane underline mt-2"
+              >
+                {modeEdition ? 'Terminé' : 'Modifier le catalogue'}
+              </button>
+            </div>
+          )}
+
+          {produitsFournisseur.length === 0 && (
+            <p className="text-xs text-encre/40">
+              Aucun produit noté pour ce fournisseur pour l'instant. Ajoute-en un ci-dessous.
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              value={nouveauProduit}
+              onChange={(e) => setNouveauProduit(e.target.value)}
+              placeholder="Ajouter un produit au catalogue…"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ajouterNouveauProduit()
+                }
+              }}
+            />
+            <button
+              onClick={ajouterNouveauProduit}
+              disabled={ajoutEnCours || !nouveauProduit.trim()}
+              className="px-4 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
+            >
+              Ajouter
+            </button>
+          </div>
+
+          {panier.size > 0 && (
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <p className="text-xs font-medium text-encre/50 uppercase">
+                Commande pour {fournisseurChoisi?.nom}
+              </p>
+              {Array.from(panier.entries()).map(([id, item]) => (
+                <div key={id} className="flex items-center justify-between text-sm">
+                  <span className="text-encre/80">{item.nom}</span>
+                  <span className="flex items-center gap-2">
+                    <button
+                      onClick={() => changerQuantite(id, -1)}
+                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                    >
+                      −
+                    </button>
+                    <span className="w-5 text-center">{item.quantite}</span>
+                    <button
+                      onClick={() => changerQuantite(id, 1)}
+                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+              ))}
+              <button
+                onClick={valider}
+                disabled={validation}
+                className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50 mt-1"
+              >
+                {validation ? 'Validation…' : 'Valider la commande'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
