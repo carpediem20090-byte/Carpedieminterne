@@ -69,6 +69,22 @@ export type Fournisseur = {
   cree_le: string
 }
 
+export type Marque = {
+  id: string
+  nom: string
+  fournisseur_id: string | null
+  cree_par: string
+  cree_le: string
+}
+
+export type ProduitCatalogue = {
+  id: string
+  marque_id: string
+  nom: string
+  cree_par: string
+  cree_le: string
+}
+
 export type CommandeFournisseur = {
   id: string
   fournisseur: string | null

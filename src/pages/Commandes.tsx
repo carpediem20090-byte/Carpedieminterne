@@ -5,6 +5,8 @@ import {
   urlDocument,
   type CommandeFournisseur,
   type Fournisseur,
+  type Marque,
+  type ProduitCatalogue,
   type ReceptionFournisseur,
 } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -13,25 +15,32 @@ export default function Commandes() {
   const { profile } = useAuth()
   const [commandes, setCommandes] = useState<CommandeFournisseur[]>([])
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([])
+  const [marques, setMarques] = useState<Marque[]>([])
+  const [catalogue, setCatalogue] = useState<ProduitCatalogue[]>([])
   const [loading, setLoading] = useState(true)
   const [fournisseurId, setFournisseurId] = useState('')
   const [produits, setProduits] = useState('')
   const [marque, setMarque] = useState('')
+  const [detailsOuverts, setDetailsOuverts] = useState(false)
   const [envoi, setEnvoi] = useState(false)
   const [commandeOuverte, setCommandeOuverte] = useState<string | null>(null)
   const [historiqueOuvert, setHistoriqueOuvert] = useState(false)
 
   async function charger() {
     setLoading(true)
-    const [c, f] = await Promise.all([
+    const [c, f, m, p] = await Promise.all([
       supabase
         .from('commandes_fournisseurs')
         .select('*, profiles(full_name), fournisseurs(nom, telephone)')
         .order('date_commande', { ascending: false }),
       supabase.from('fournisseurs').select('*').order('nom', { ascending: true }),
+      supabase.from('marques').select('*').order('nom', { ascending: true }),
+      supabase.from('produits_catalogue').select('*').order('nom', { ascending: true }),
     ])
     setCommandes((c.data as CommandeFournisseur[]) ?? [])
     setFournisseurs((f.data as Fournisseur[]) ?? [])
+    setMarques((m.data as Marque[]) ?? [])
+    setCatalogue((p.data as ProduitCatalogue[]) ?? [])
     setLoading(false)
   }
 
@@ -92,6 +101,64 @@ export default function Commandes() {
     charger()
   }
 
+  // --- Catalogue de commande rapide (marques + produits par marque) ---
+
+  async function ajouterMarqueCatalogue(nom: string, fournisseurCible: string) {
+    if (!profile || !nom.trim()) return null
+    const { data, error } = await supabase
+      .from('marques')
+      .insert({ nom: nom.trim(), fournisseur_id: fournisseurCible || null, cree_par: profile.id })
+      .select()
+      .single()
+    if (error || !data) return null
+    const m = data as Marque
+    setMarques((prev) => [...prev, m].sort((a, b) => a.nom.localeCompare(b.nom)))
+    return m
+  }
+
+  async function supprimerMarqueCatalogue(id: string) {
+    if (!window.confirm('Supprimer cette marque et tous ses produits du catalogue ?')) return
+    await supabase.from('marques').delete().eq('id', id)
+    setMarques((prev) => prev.filter((m) => m.id !== id))
+    setCatalogue((prev) => prev.filter((p) => p.marque_id !== id))
+  }
+
+  async function ajouterProduitCatalogue(marqueId: string, nom: string) {
+    if (!profile || !nom.trim()) return null
+    const { data, error } = await supabase
+      .from('produits_catalogue')
+      .insert({ marque_id: marqueId, nom: nom.trim(), cree_par: profile.id })
+      .select()
+      .single()
+    if (error || !data) return null
+    const p = data as ProduitCatalogue
+    setCatalogue((prev) => [...prev, p].sort((a, b) => a.nom.localeCompare(b.nom)))
+    return p
+  }
+
+  async function supprimerProduitCatalogue(id: string) {
+    if (!window.confirm('Retirer ce produit du catalogue ?')) return
+    await supabase.from('produits_catalogue').delete().eq('id', id)
+    setCatalogue((prev) => prev.filter((p) => p.id !== id))
+  }
+
+  async function validerCommandeCatalogue(
+    fournisseurCible: string,
+    groupes: { marqueNom: string | null; texte: string }[]
+  ) {
+    if (!profile || groupes.length === 0) return
+    const lignes = groupes.map((g) => ({
+      fournisseur_id: fournisseurCible,
+      marque: g.marqueNom,
+      produits: g.texte,
+      creee_par: profile.id,
+      statut: 'commande' as const,
+      date_commande: new Date().toISOString(),
+    }))
+    await supabase.from('commandes_fournisseurs').insert(lignes)
+    charger()
+  }
+
   const aCommander = commandes.filter((c) => c.statut === 'a_commander')
   const commandees = commandes.filter((c) => c.statut === 'commande')
   const historique = commandes.filter((c) => c.statut === 'recue' || c.statut === 'annulee')
@@ -137,44 +204,71 @@ export default function Commandes() {
         </p>
       </div>
 
+      <CommandeRapide
+        fournisseurs={fournisseurs}
+        marques={marques}
+        catalogue={catalogue}
+        onAjouterMarque={ajouterMarqueCatalogue}
+        onSupprimerMarque={supprimerMarqueCatalogue}
+        onAjouterProduit={ajouterProduitCatalogue}
+        onSupprimerProduit={supprimerProduitCatalogue}
+        onValider={validerCommandeCatalogue}
+      />
+
       <form onSubmit={creerCommande} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Produit(s) à commander</label>
-          <textarea
-            value={produits}
-            onChange={(e) => setProduits(e.target.value)}
-            placeholder="Ex : 10 boîtes cigares X, 5 briquets Y…"
-            rows={2}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane resize-none"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Marque (optionnel)</label>
-          <input
-            value={marque}
-            onChange={(e) => setMarque(e.target.value)}
-            placeholder="Ex : Camel, Marlboro…"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Fournisseur (si tu le connais déjà)</label>
-          <select
-            value={fournisseurId}
-            onChange={(e) => setFournisseurId(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
+        <textarea
+          value={produits}
+          onChange={(e) => setProduits(e.target.value)}
+          placeholder="Produit à commander…"
+          rows={2}
+          autoFocus
+          className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane resize-none"
+        />
+
+        {detailsOuverts ? (
+          <>
+            <div>
+              <label className="block text-xs font-medium mb-1 text-encre/60">Marque (optionnel)</label>
+              <input
+                value={marque}
+                onChange={(e) => setMarque(e.target.value)}
+                placeholder="Ex : Camel, Marlboro…"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1 text-encre/60">Fournisseur (si tu le connais déjà)</label>
+              <select
+                value={fournisseurId}
+                onChange={(e) => setFournisseurId(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
+              >
+                <option value="">À définir plus tard</option>
+                {fournisseurs.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDetailsOuverts(false)}
+              className="text-xs text-havane underline"
+            >
+              Masquer marque / fournisseur
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setDetailsOuverts(true)}
+            className="text-xs text-havane underline"
           >
-            <option value="">À définir plus tard</option>
-            {fournisseurs.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.nom}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-encre/40 mt-1">
-            Un nouveau fournisseur ? Ajoute-le d'abord dans "Fournisseurs".
-          </p>
-        </div>
+            + Ajouter une marque ou un fournisseur
+          </button>
+        )}
+
         <button
           type="submit"
           disabled={envoi || !produits.trim()}
@@ -278,6 +372,308 @@ export default function Commandes() {
 
       {!loading && commandes.length === 0 && (
         <p className="text-sm text-encre/50 text-center py-8">Aucune commande pour le moment.</p>
+      )}
+    </div>
+  )
+}
+
+function CommandeRapide({
+  fournisseurs,
+  marques,
+  catalogue,
+  onAjouterMarque,
+  onSupprimerMarque,
+  onAjouterProduit,
+  onSupprimerProduit,
+  onValider,
+}: {
+  fournisseurs: Fournisseur[]
+  marques: Marque[]
+  catalogue: ProduitCatalogue[]
+  onAjouterMarque: (nom: string, fournisseurId: string) => Promise<Marque | null>
+  onSupprimerMarque: (id: string) => void
+  onAjouterProduit: (marqueId: string, nom: string) => Promise<ProduitCatalogue | null>
+  onSupprimerProduit: (id: string) => void
+  onValider: (fournisseurId: string, groupes: { marqueNom: string | null; texte: string }[]) => Promise<void>
+}) {
+  const [fournisseurId, setFournisseurId] = useState('')
+  const [marqueOuverte, setMarqueOuverte] = useState<string | null>(null)
+  const [panier, setPanier] = useState<Map<string, { nom: string; quantite: number; marqueId: string; marqueNom: string }>>(
+    new Map()
+  )
+  const [nouvelleMarque, setNouvelleMarque] = useState('')
+  const [ajoutMarqueEnCours, setAjoutMarqueEnCours] = useState(false)
+  const [nouveauxProduits, setNouveauxProduits] = useState<Record<string, string>>({})
+  const [ajoutProduitEnCours, setAjoutProduitEnCours] = useState<string | null>(null)
+  const [modeEdition, setModeEdition] = useState(false)
+  const [validation, setValidation] = useState(false)
+
+  const marquesDuFournisseur = marques.filter((m) => m.fournisseur_id === fournisseurId)
+  const fournisseurChoisi = fournisseurs.find((f) => f.id === fournisseurId)
+
+  function ajouterProduitAuPanier(p: ProduitCatalogue, m: Marque) {
+    setPanier((prev) => {
+      const copie = new Map(prev)
+      const existant = copie.get(p.id)
+      copie.set(p.id, { nom: p.nom, quantite: (existant?.quantite ?? 0) + 1, marqueId: m.id, marqueNom: m.nom })
+      return copie
+    })
+  }
+
+  function ajouterMarqueAuPanier(m: Marque) {
+    const produitsDeMarque = catalogue.filter((p) => p.marque_id === m.id)
+    if (produitsDeMarque.length === 0) {
+      setMarqueOuverte(m.id)
+      return
+    }
+    setPanier((prev) => {
+      const copie = new Map(prev)
+      for (const p of produitsDeMarque) {
+        const existant = copie.get(p.id)
+        copie.set(p.id, { nom: p.nom, quantite: (existant?.quantite ?? 0) + 1, marqueId: m.id, marqueNom: m.nom })
+      }
+      return copie
+    })
+  }
+
+  function changerQuantite(id: string, delta: number) {
+    setPanier((prev) => {
+      const copie = new Map(prev)
+      const existant = copie.get(id)
+      if (!existant) return prev
+      const nouvelleQuantite = existant.quantite + delta
+      if (nouvelleQuantite <= 0) copie.delete(id)
+      else copie.set(id, { ...existant, quantite: nouvelleQuantite })
+      return copie
+    })
+  }
+
+  async function ajouterNouvelleMarque() {
+    if (!nouvelleMarque.trim() || !fournisseurId) return
+    setAjoutMarqueEnCours(true)
+    const m = await onAjouterMarque(nouvelleMarque, fournisseurId)
+    setAjoutMarqueEnCours(false)
+    setNouvelleMarque('')
+    if (m) setMarqueOuverte(m.id)
+  }
+
+  async function ajouterNouveauProduit(m: Marque) {
+    const nom = nouveauxProduits[m.id]?.trim()
+    if (!nom) return
+    setAjoutProduitEnCours(m.id)
+    const p = await onAjouterProduit(m.id, nom)
+    setAjoutProduitEnCours(null)
+    setNouveauxProduits((prev) => ({ ...prev, [m.id]: '' }))
+    if (p) ajouterProduitAuPanier(p, m)
+  }
+
+  async function valider() {
+    if (!fournisseurId || panier.size === 0) return
+    const groupesParMarque = new Map<string, { marqueNom: string; textes: string[] }>()
+    for (const item of panier.values()) {
+      if (!groupesParMarque.has(item.marqueId)) groupesParMarque.set(item.marqueId, { marqueNom: item.marqueNom, textes: [] })
+      groupesParMarque.get(item.marqueId)!.textes.push(`${item.quantite}x ${item.nom}`)
+    }
+    const groupes = Array.from(groupesParMarque.values()).map((g) => ({
+      marqueNom: g.marqueNom,
+      texte: g.textes.join(', '),
+    }))
+    setValidation(true)
+    await onValider(fournisseurId, groupes)
+    setValidation(false)
+    setPanier(new Map())
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
+      <div>
+        <h2 className="font-medium text-sm text-havane">Commande rapide (catalogue)</h2>
+        <p className="text-xs text-encre/50">
+          Choisis le fournisseur, puis clique sur une marque ou un produit pour l'ajouter à la commande.
+        </p>
+      </div>
+
+      <select
+        value={fournisseurId}
+        onChange={(e) => {
+          setFournisseurId(e.target.value)
+          setMarqueOuverte(null)
+          setPanier(new Map())
+          setModeEdition(false)
+        }}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
+      >
+        <option value="">Choisir un fournisseur…</option>
+        {fournisseurs.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.nom}
+          </option>
+        ))}
+      </select>
+
+      {fournisseurId && (
+        <>
+          {marquesDuFournisseur.length === 0 && (
+            <p className="text-xs text-encre/40">
+              Aucune marque enregistrée pour ce fournisseur. Ajoutes-en une ci-dessous.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            {marquesDuFournisseur.map((m) => {
+              const produitsDeMarque = catalogue.filter((p) => p.marque_id === m.id)
+              const estOuverte = marqueOuverte === m.id
+              return (
+                <div key={m.id} className="border border-gray-200 rounded-lg p-2">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => ajouterMarqueAuPanier(m)} className="flex-1 text-left text-sm font-medium">
+                      {m.nom}{' '}
+                      <span className="text-xs text-encre/40 font-normal">
+                        ({produitsDeMarque.length} produit{produitsDeMarque.length !== 1 ? 's' : ''})
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setMarqueOuverte(estOuverte ? null : m.id)}
+                      className="text-xs text-havane underline shrink-0"
+                    >
+                      {estOuverte ? 'Fermer' : 'Voir'}
+                    </button>
+                    {modeEdition && (
+                      <button
+                        onClick={() => onSupprimerMarque(m.id)}
+                        className="text-xs text-corail underline shrink-0"
+                      >
+                        Suppr.
+                      </button>
+                    )}
+                  </div>
+
+                  {estOuverte && (
+                    <div className="mt-2 space-y-2">
+                      {produitsDeMarque.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {produitsDeMarque.map((p) => {
+                            const dansLePanier = panier.get(p.id)
+                            if (modeEdition) {
+                              return (
+                                <button
+                                  key={p.id}
+                                  onClick={() => onSupprimerProduit(p.id)}
+                                  className="px-3 py-1.5 rounded-full text-sm border border-corail text-corail bg-corail/5"
+                                >
+                                  {p.nom} ✕
+                                </button>
+                              )
+                            }
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => ajouterProduitAuPanier(p, m)}
+                                className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                                  dansLePanier
+                                    ? 'bg-havane text-white border-havane'
+                                    : 'bg-white text-encre/80 border-gray-300'
+                                }`}
+                              >
+                                {p.nom}
+                                {dansLePanier ? ` (${dansLePanier.quantite})` : ''}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <input
+                          value={nouveauxProduits[m.id] ?? ''}
+                          onChange={(e) => setNouveauxProduits((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                          placeholder="Ajouter un produit à cette marque…"
+                          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              ajouterNouveauProduit(m)
+                            }
+                          }}
+                        />
+                        <button
+                          onClick={() => ajouterNouveauProduit(m)}
+                          disabled={ajoutProduitEnCours === m.id || !nouveauxProduits[m.id]?.trim()}
+                          className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
+                        >
+                          Ajouter
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <input
+              value={nouvelleMarque}
+              onChange={(e) => setNouvelleMarque(e.target.value)}
+              placeholder="Nouvelle marque pour ce fournisseur…"
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  ajouterNouvelleMarque()
+                }
+              }}
+            />
+            <button
+              onClick={ajouterNouvelleMarque}
+              disabled={ajoutMarqueEnCours || !nouvelleMarque.trim()}
+              className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
+            >
+              Ajouter
+            </button>
+          </div>
+
+          {marquesDuFournisseur.length > 0 && (
+            <button onClick={() => setModeEdition(!modeEdition)} className="text-xs text-havane underline">
+              {modeEdition ? 'Terminé' : 'Gérer les marques / produits'}
+            </button>
+          )}
+
+          {panier.size > 0 && (
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <p className="text-xs font-medium text-encre/50 uppercase">Commande pour {fournisseurChoisi?.nom}</p>
+              {Array.from(panier.entries()).map(([id, item]) => (
+                <div key={id} className="flex items-center justify-between text-sm">
+                  <span className="text-encre/80">
+                    <span className="text-encre/40">{item.marqueNom} · </span>
+                    {item.nom}
+                  </span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => changerQuantite(id, -1)}
+                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                    >
+                      −
+                    </button>
+                    <span className="w-5 text-center">{item.quantite}</span>
+                    <button
+                      onClick={() => changerQuantite(id, 1)}
+                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+              ))}
+              <button
+                onClick={valider}
+                disabled={validation}
+                className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50 mt-1"
+              >
+                {validation ? 'Validation…' : 'Valider la commande'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
