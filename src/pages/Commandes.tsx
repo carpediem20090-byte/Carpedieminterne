@@ -397,7 +397,7 @@ function CommandeRapide({
   onValider: (fournisseurId: string, groupes: { marqueNom: string | null; texte: string }[]) => Promise<void>
 }) {
   const [fournisseurId, setFournisseurId] = useState('')
-  const [marqueOuverte, setMarqueOuverte] = useState<string | null>(null)
+  const [recherche, setRecherche] = useState('')
   const [panier, setPanier] = useState<Map<string, { nom: string; quantite: number; marqueId: string; marqueNom: string }>>(
     new Map()
   )
@@ -408,8 +408,16 @@ function CommandeRapide({
   const [modeEdition, setModeEdition] = useState(false)
   const [validation, setValidation] = useState(false)
 
-  const marquesDuFournisseur = marques.filter((m) => m.fournisseur_id === fournisseurId)
   const fournisseurChoisi = fournisseurs.find((f) => f.id === fournisseurId)
+
+  // Quand un fournisseur est choisi (le représentant est là), on montre ses
+  // marques + celles pas encore rattachées à un fournisseur (à trancher sur
+  // le moment) ; sans fournisseur choisi, on montre tout le catalogue.
+  const rechercheNorm = recherche.trim().toLowerCase()
+  const marquesVisibles = marques
+    .filter((m) => !fournisseurId || m.fournisseur_id === fournisseurId || !m.fournisseur_id)
+    .filter((m) => !rechercheNorm || m.nom.toLowerCase().includes(rechercheNorm))
+    .sort((a, b) => a.nom.localeCompare(b.nom))
 
   function ajouterProduitAuPanier(p: ProduitCatalogue, m: Marque) {
     setPanier((prev) => {
@@ -422,10 +430,7 @@ function CommandeRapide({
 
   function ajouterMarqueAuPanier(m: Marque) {
     const produitsDeMarque = catalogue.filter((p) => p.marque_id === m.id)
-    if (produitsDeMarque.length === 0) {
-      setMarqueOuverte(m.id)
-      return
-    }
+    if (produitsDeMarque.length === 0) return
     setPanier((prev) => {
       const copie = new Map(prev)
       for (const p of produitsDeMarque) {
@@ -449,12 +454,11 @@ function CommandeRapide({
   }
 
   async function ajouterNouvelleMarque() {
-    if (!nouvelleMarque.trim() || !fournisseurId) return
+    if (!nouvelleMarque.trim()) return
     setAjoutMarqueEnCours(true)
-    const m = await onAjouterMarque(nouvelleMarque, fournisseurId)
+    await onAjouterMarque(nouvelleMarque, fournisseurId)
     setAjoutMarqueEnCours(false)
     setNouvelleMarque('')
-    if (m) setMarqueOuverte(m.id)
   }
 
   async function ajouterNouveauProduit(m: Marque) {
@@ -489,21 +493,16 @@ function CommandeRapide({
       <div>
         <h2 className="font-medium text-sm text-havane">Commande rapide (catalogue)</h2>
         <p className="text-xs text-encre/50">
-          Choisis le fournisseur, puis clique sur une marque ou un produit pour l'ajouter à la commande.
+          Le fournisseur est là ? Choisis-le, puis tape sur les produits ou les marques de la liste.
         </p>
       </div>
 
       <select
         value={fournisseurId}
-        onChange={(e) => {
-          setFournisseurId(e.target.value)
-          setMarqueOuverte(null)
-          setPanier(new Map())
-          setModeEdition(false)
-        }}
+        onChange={(e) => setFournisseurId(e.target.value)}
         className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
       >
-        <option value="">Choisir un fournisseur…</option>
+        <option value="">Fournisseur présent…</option>
         {fournisseurs.map((f) => (
           <option key={f.id} value={f.id}>
             {f.nom}
@@ -511,169 +510,168 @@ function CommandeRapide({
         ))}
       </select>
 
-      {fournisseurId && (
-        <>
-          {marquesDuFournisseur.length === 0 && (
-            <p className="text-xs text-encre/40">
-              Aucune marque enregistrée pour ce fournisseur. Ajoutes-en une ci-dessous.
-            </p>
-          )}
+      <input
+        value={recherche}
+        onChange={(e) => setRecherche(e.target.value)}
+        placeholder="Rechercher une marque…"
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+      />
 
-          <div className="space-y-2">
-            {marquesDuFournisseur.map((m) => {
-              const produitsDeMarque = catalogue.filter((p) => p.marque_id === m.id)
-              const estOuverte = marqueOuverte === m.id
-              return (
-                <div key={m.id} className="border border-gray-200 rounded-lg p-2">
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => ajouterMarqueAuPanier(m)} className="flex-1 text-left text-sm font-medium">
-                      {m.nom}{' '}
-                      <span className="text-xs text-encre/40 font-normal">
-                        ({produitsDeMarque.length} produit{produitsDeMarque.length !== 1 ? 's' : ''})
-                      </span>
-                    </button>
-                    <button
-                      onClick={() => setMarqueOuverte(estOuverte ? null : m.id)}
-                      className="text-xs text-havane underline shrink-0"
-                    >
-                      {estOuverte ? 'Fermer' : 'Voir'}
-                    </button>
-                    {modeEdition && (
-                      <button
-                        onClick={() => onSupprimerMarque(m.id)}
-                        className="text-xs text-corail underline shrink-0"
-                      >
-                        Suppr.
-                      </button>
-                    )}
-                  </div>
+      {marquesVisibles.length === 0 && (
+        <p className="text-xs text-encre/40">Aucune marque. Ajoutes-en une ci-dessous.</p>
+      )}
 
-                  {estOuverte && (
-                    <div className="mt-2 space-y-2">
-                      {produitsDeMarque.length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {produitsDeMarque.map((p) => {
-                            const dansLePanier = panier.get(p.id)
-                            if (modeEdition) {
-                              return (
-                                <button
-                                  key={p.id}
-                                  onClick={() => onSupprimerProduit(p.id)}
-                                  className="px-3 py-1.5 rounded-full text-sm border border-corail text-corail bg-corail/5"
-                                >
-                                  {p.nom} ✕
-                                </button>
-                              )
-                            }
-                            return (
-                              <button
-                                key={p.id}
-                                onClick={() => ajouterProduitAuPanier(p, m)}
-                                className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                                  dansLePanier
-                                    ? 'bg-havane text-white border-havane'
-                                    : 'bg-white text-encre/80 border-gray-300'
-                                }`}
-                              >
-                                {p.nom}
-                                {dansLePanier ? ` (${dansLePanier.quantite})` : ''}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      )}
-                      <div className="flex gap-2">
-                        <input
-                          value={nouveauxProduits[m.id] ?? ''}
-                          onChange={(e) => setNouveauxProduits((prev) => ({ ...prev, [m.id]: e.target.value }))}
-                          placeholder="Ajouter un produit à cette marque…"
-                          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              ajouterNouveauProduit(m)
-                            }
-                          }}
-                        />
-                        <button
-                          onClick={() => ajouterNouveauProduit(m)}
-                          disabled={ajoutProduitEnCours === m.id || !nouveauxProduits[m.id]?.trim()}
-                          className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
-                        >
-                          Ajouter
+      <div className="divide-y divide-gray-100">
+        {marquesVisibles.map((m) => {
+          const produitsDeMarque = catalogue
+            .filter((p) => p.marque_id === m.id)
+            .sort((a, b) => a.nom.localeCompare(b.nom))
+          return (
+            <div key={m.id} className="py-1.5">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => ajouterMarqueAuPanier(m)}
+                  className="flex-1 text-left text-sm font-semibold text-encre py-1"
+                >
+                  {m.nom}
+                  {!m.fournisseur_id && (
+                    <span className="ml-1.5 text-[10px] font-normal text-encre/35">(fournisseur à définir)</span>
+                  )}
+                </button>
+                {modeEdition && (
+                  <button
+                    onClick={() => onSupprimerMarque(m.id)}
+                    className="text-xs text-corail underline shrink-0"
+                  >
+                    Suppr. marque
+                  </button>
+                )}
+              </div>
+
+              <div className="pl-2">
+                {produitsDeMarque.map((p) => {
+                  const dansLePanier = panier.get(p.id)
+                  if (modeEdition) {
+                    return (
+                      <div key={p.id} className="flex items-center justify-between py-1 text-sm">
+                        <span className="text-encre/70">{p.nom}</span>
+                        <button onClick={() => onSupprimerProduit(p.id)} className="text-xs text-corail underline">
+                          Suppr.
                         </button>
                       </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <input
-              value={nouvelleMarque}
-              onChange={(e) => setNouvelleMarque(e.target.value)}
-              placeholder="Nouvelle marque pour ce fournisseur…"
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  ajouterNouvelleMarque()
-                }
-              }}
-            />
-            <button
-              onClick={ajouterNouvelleMarque}
-              disabled={ajoutMarqueEnCours || !nouvelleMarque.trim()}
-              className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
-            >
-              Ajouter
-            </button>
-          </div>
-
-          {marquesDuFournisseur.length > 0 && (
-            <button onClick={() => setModeEdition(!modeEdition)} className="text-xs text-havane underline">
-              {modeEdition ? 'Terminé' : 'Gérer les marques / produits'}
-            </button>
-          )}
-
-          {panier.size > 0 && (
-            <div className="pt-2 border-t border-gray-100 space-y-2">
-              <p className="text-xs font-medium text-encre/50 uppercase">Commande pour {fournisseurChoisi?.nom}</p>
-              {Array.from(panier.entries()).map(([id, item]) => (
-                <div key={id} className="flex items-center justify-between text-sm">
-                  <span className="text-encre/80">
-                    <span className="text-encre/40">{item.marqueNom} · </span>
-                    {item.nom}
-                  </span>
-                  <span className="flex items-center gap-2 shrink-0">
+                    )
+                  }
+                  return (
                     <button
-                      onClick={() => changerQuantite(id, -1)}
-                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                      key={p.id}
+                      onClick={() => ajouterProduitAuPanier(p, m)}
+                      className="w-full flex items-center justify-between py-1.5 text-left text-sm border-b border-gray-50 last:border-0 active:bg-havane/5"
                     >
-                      −
+                      <span className={dansLePanier ? 'text-havane font-medium' : 'text-encre/70'}>{p.nom}</span>
+                      {dansLePanier && (
+                        <span className="text-xs bg-havane text-white rounded-full px-2 py-0.5 shrink-0">
+                          {dansLePanier.quantite}
+                        </span>
+                      )}
                     </button>
-                    <span className="w-5 text-center">{item.quantite}</span>
+                  )
+                })}
+                {modeEdition && (
+                  <div className="flex gap-2 py-1.5">
+                    <input
+                      value={nouveauxProduits[m.id] ?? ''}
+                      onChange={(e) => setNouveauxProduits((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                      placeholder="Ajouter un produit à cette marque…"
+                      className="flex-1 rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          ajouterNouveauProduit(m)
+                        }
+                      }}
+                    />
                     <button
-                      onClick={() => changerQuantite(id, 1)}
-                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                      onClick={() => ajouterNouveauProduit(m)}
+                      disabled={ajoutProduitEnCours === m.id || !nouveauxProduits[m.id]?.trim()}
+                      className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
                     >
                       +
                     </button>
-                  </span>
-                </div>
-              ))}
-              <button
-                onClick={valider}
-                disabled={validation}
-                className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50 mt-1"
-              >
-                {validation ? 'Validation…' : 'Valider la commande'}
-              </button>
+                  </div>
+                )}
+              </div>
             </div>
+          )
+        })}
+      </div>
+
+      {modeEdition && (
+        <div className="flex gap-2 pt-1">
+          <input
+            value={nouvelleMarque}
+            onChange={(e) => setNouvelleMarque(e.target.value)}
+            placeholder={fournisseurId ? 'Nouvelle marque pour ce fournisseur…' : 'Nouvelle marque (fournisseur à définir)…'}
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                ajouterNouvelleMarque()
+              }
+            }}
+          />
+          <button
+            onClick={ajouterNouvelleMarque}
+            disabled={ajoutMarqueEnCours || !nouvelleMarque.trim()}
+            className="px-3 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
+          >
+            Ajouter
+          </button>
+        </div>
+      )}
+
+      <button onClick={() => setModeEdition(!modeEdition)} className="text-xs text-havane underline">
+        {modeEdition ? 'Terminé' : 'Gérer les marques / produits'}
+      </button>
+
+      {panier.size > 0 && (
+        <div className="pt-2 border-t border-gray-100 space-y-2">
+          <p className="text-xs font-medium text-encre/50 uppercase">
+            {fournisseurChoisi ? `Commande pour ${fournisseurChoisi.nom}` : 'Commande en cours'}
+          </p>
+          {Array.from(panier.entries()).map(([id, item]) => (
+            <div key={id} className="flex items-center justify-between text-sm">
+              <span className="text-encre/80">
+                <span className="text-encre/40">{item.marqueNom} · </span>
+                {item.nom}
+              </span>
+              <span className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => changerQuantite(id, -1)}
+                  className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                >
+                  −
+                </button>
+                <span className="w-5 text-center">{item.quantite}</span>
+                <button
+                  onClick={() => changerQuantite(id, 1)}
+                  className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
+                >
+                  +
+                </button>
+              </span>
+            </div>
+          ))}
+          {!fournisseurId && (
+            <p className="text-xs text-encre/40">Choisis en haut le fournisseur chez qui cette commande part, pour valider.</p>
           )}
-        </>
+          <button
+            onClick={valider}
+            disabled={validation || !fournisseurId}
+            className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50 mt-1"
+          >
+            {validation ? 'Validation…' : 'Valider la commande'}
+          </button>
+        </div>
       )}
     </div>
   )
