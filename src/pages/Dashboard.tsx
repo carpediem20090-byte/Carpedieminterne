@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
   supabase,
@@ -15,6 +15,9 @@ export default function Dashboard() {
   const [commandesEnAttente, setCommandesEnAttente] = useState<CommandeFournisseur[]>([])
   const [demandesEnAttente, setDemandesEnAttente] = useState<DemandeClient[]>([])
   const [loading, setLoading] = useState(true)
+  const [produitRapide, setProduitRapide] = useState('')
+  const [ajoutEnCours, setAjoutEnCours] = useState(false)
+  const [ajoutConfirme, setAjoutConfirme] = useState(false)
 
   useEffect(() => {
     async function charger() {
@@ -50,6 +53,24 @@ export default function Dashboard() {
     charger()
   }, [estPatron])
 
+  async function ajouterProduitRapide(e: FormEvent) {
+    e.preventDefault()
+    if (!produitRapide.trim() || !profile) return
+    setAjoutEnCours(true)
+    const { error } = await supabase.from('commandes_fournisseurs').insert({
+      produits: produitRapide.trim(),
+      fournisseur_id: null,
+      creee_par: profile.id,
+      statut: 'a_commander',
+    })
+    setAjoutEnCours(false)
+    if (!error) {
+      setProduitRapide('')
+      setAjoutConfirme(true)
+      setTimeout(() => setAjoutConfirme(false), 2000)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -60,6 +81,26 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
+
+      <form onSubmit={ajouterProduitRapide} className="bg-havane text-white rounded-2xl shadow-sm p-4 space-y-2">
+        <label className="block text-sm font-medium">Produit terminé ? Note-le en 1 tap</label>
+        <div className="flex gap-2">
+          <input
+            value={produitRapide}
+            onChange={(e) => setProduitRapide(e.target.value)}
+            placeholder="Ex : Camel bleu"
+            className="flex-1 rounded-lg border border-white/30 bg-white/10 px-3 py-2.5 text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white"
+          />
+          <button
+            type="submit"
+            disabled={ajoutEnCours || !produitRapide.trim()}
+            className="px-4 rounded-lg bg-white text-havane font-medium disabled:opacity-50"
+          >
+            {ajoutEnCours ? '…' : 'Ajouter'}
+          </button>
+        </div>
+        {ajoutConfirme && <p className="text-xs text-white/90">✓ Ajouté à la liste "à commander"</p>}
+      </form>
 
       {erreursEnCours.length > 0 && (
         <Link

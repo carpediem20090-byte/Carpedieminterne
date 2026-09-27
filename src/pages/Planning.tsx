@@ -15,6 +15,18 @@ function moisActuel() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
+function decalerMois(moisStr: string, delta: number) {
+  const [annee, m] = moisStr.split('-').map(Number)
+  const d = new Date(annee, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatMoisLong(moisStr: string) {
+  const [annee, m] = moisStr.split('-').map(Number)
+  const d = new Date(annee, m - 1, 1)
+  return d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' })
+}
+
 function lundiDeSemaine(date: Date) {
   const d = new Date(date)
   const jour = d.getDay() // 0 = dimanche
@@ -108,6 +120,13 @@ export default function Planning() {
   const [jourNoteEnEdition, setJourNoteEnEdition] = useState<number | null>(null)
   const [texteNote, setTexteNote] = useState('')
   const [envoiNote, setEnvoiNote] = useState(false)
+
+  // Demande rapide de repos/congé (employé, en cliquant sur sa propre colonne)
+  const [demandeRapideJour, setDemandeRapideJour] = useState<number | null>(null)
+  const [typeRapide, setTypeRapide] = useState<'conge' | 'repos'>('repos')
+  const [periodeRapide, setPeriodeRapide] = useState<'journee' | 'matin' | 'apres_midi'>('journee')
+  const [commentaireRapide, setCommentaireRapide] = useState('')
+  const [envoiDemandeRapide, setEnvoiDemandeRapide] = useState(false)
 
   // Demandes de changement d'horaire
   const [demandesModif, setDemandesModif] = useState<DemandeModificationHoraire[]>([])
@@ -227,6 +246,11 @@ export default function Planning() {
 
   // --- Horaires du mois (calendrier) ---
 
+  function changerMoisHoraires(delta: number) {
+    setMoisHoraires((m) => decalerMois(m, delta))
+    setCelluleEnEdition(null)
+  }
+
   function jourISOduMois(jour: number) {
     return `${moisHoraires}-${String(jour).padStart(2, '0')}`
   }
@@ -324,7 +348,39 @@ export default function Planning() {
       appuiLongDejaOuvert.current = false
       return
     }
-    ouvrirRapide(jour, profilId)
+    if (estPatron) {
+      ouvrirRapide(jour, profilId)
+    } else if (profile && profilId === profile.id) {
+      ouvrirDemandeRapide(jour)
+    }
+  }
+
+  // --- Demande rapide de repos/congé (employé, clic sur sa propre colonne) ---
+
+  function ouvrirDemandeRapide(jour: number) {
+    setTypeRapide('repos')
+    setPeriodeRapide('journee')
+    setCommentaireRapide('')
+    setDemandeRapideJour(jour)
+  }
+
+  async function envoyerDemandeRapide() {
+    if (demandeRapideJour === null || !profile) return
+    setEnvoiDemandeRapide(true)
+    const iso = jourISOduMois(demandeRapideJour)
+    const { error } = await supabase.from('demandes_absence').insert({
+      type: typeRapide,
+      periode: periodeRapide,
+      date_debut: iso,
+      date_fin: iso,
+      commentaire: commentaireRapide.trim() || null,
+      demandee_par: profile.id,
+    })
+    setEnvoiDemandeRapide(false)
+    if (!error) {
+      setDemandeRapideJour(null)
+      chargerDemandes()
+    }
   }
 
   function appliquerPreset(debut: string, fin: string) {
@@ -621,17 +677,25 @@ export default function Planning() {
 
       {/* Horaires du mois — calendrier */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="font-medium text-sm text-encre/80">Horaires du mois</h2>
-          <input
-            type="month"
-            value={moisHoraires}
-            onChange={(e) => {
-              setMoisHoraires(e.target.value)
-              setCelluleEnEdition(null)
-            }}
-            className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-          />
+        <h2 className="font-medium text-sm text-encre/80">Horaires du mois</h2>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={() => changerMoisHoraires(-1)}
+            aria-label="Mois précédent"
+            className="w-9 h-9 shrink-0 rounded-full bg-white shadow-sm text-havane text-lg font-medium"
+          >
+            ‹
+          </button>
+          <span className="text-sm font-semibold text-encre capitalize min-w-[140px] text-center">
+            {formatMoisLong(moisHoraires)}
+          </span>
+          <button
+            onClick={() => changerMoisHoraires(1)}
+            aria-label="Mois suivant"
+            className="w-9 h-9 shrink-0 rounded-full bg-white shadow-sm text-havane text-lg font-medium"
+          >
+            ›
+          </button>
         </div>
 
         {loadingHoraires && <p className="text-sm text-encre/50">Chargement…</p>}
@@ -671,7 +735,10 @@ export default function Planning() {
                       const h = horaireCellule(jour, p.id)
                       const absence = demandeAbsenceCellule(jour, p.id)
                       const modif = demandeModifCellule(jour, p.id)
-                      const selectionnee = celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === p.id
+                      const estSaPropreColonne = profile?.id === p.id
+                      const selectionnee =
+                        (celluleEnEdition?.jour === jour && celluleEnEdition?.profilId === p.id) ||
+                        (demandeRapideJour === jour && estSaPropreColonne)
                       return (
                         <td key={p.id} className="px-1 py-1 text-center">
                           <button
@@ -682,7 +749,7 @@ export default function Planning() {
                             onPointerCancel={annulerAppui}
                             onClick={() => gererClicCellule(jour, p.id)}
                             onContextMenu={(e) => e.preventDefault()}
-                            disabled={!estPatron}
+                            disabled={!estPatron && !estSaPropreColonne}
                             style={{ touchAction: 'manipulation' }}
                             title={
                               absence
@@ -735,6 +802,12 @@ export default function Planning() {
               </tbody>
             </table>
           </div>
+        )}
+
+        {!loadingHoraires && !estPatron && (
+          <p className="text-xs text-encre/50">
+            Clique sur ta colonne, le jour souhaité, pour demander un repos ou un congé ce jour-là.
+          </p>
         )}
 
         {!loadingHoraires && profilsPlanning.length > 0 && (
@@ -920,6 +993,102 @@ export default function Planning() {
                   Fermer
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {demandeRapideJour !== null && profile && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4 pb-4 sm:pb-0"
+            onClick={() => setDemandeRapideJour(null)}
+          >
+            <div
+              className="w-full sm:max-w-sm bg-white rounded-2xl shadow-lg p-4 space-y-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="text-sm font-medium">
+                Demander repos / congé — {formatDateCourte(jourISOduMois(demandeRapideJour))}
+              </p>
+
+              {demandeAbsenceCellule(demandeRapideJour, profile.id) ? (
+                <>
+                  <p className="text-sm text-encre/70">
+                    Tu as déjà une demande de {demandeAbsenceCellule(demandeRapideJour, profile.id)?.type === 'conge' ? 'congé' : 'repos'} ce
+                    jour-là.
+                  </p>
+                  <button
+                    onClick={() => setDemandeRapideJour(null)}
+                    className="w-full px-3 py-2 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
+                  >
+                    Fermer
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex bg-creme rounded-lg p-1">
+                    <button
+                      type="button"
+                      onClick={() => setTypeRapide('repos')}
+                      className={`flex-1 rounded-md py-2 text-sm font-medium ${
+                        typeRapide === 'repos' ? 'bg-havane text-white' : 'text-encre/60'
+                      }`}
+                    >
+                      Repos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTypeRapide('conge')}
+                      className={`flex-1 rounded-md py-2 text-sm font-medium ${
+                        typeRapide === 'conge' ? 'bg-havane text-white' : 'text-encre/60'
+                      }`}
+                    >
+                      Congé
+                    </button>
+                  </div>
+                  <div className="flex bg-creme rounded-lg p-1">
+                    {(
+                      [
+                        { v: 'journee', label: 'Journée' },
+                        { v: 'matin', label: 'Matin' },
+                        { v: 'apres_midi', label: 'Après-midi' },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.v}
+                        type="button"
+                        onClick={() => setPeriodeRapide(opt.v)}
+                        className={`flex-1 rounded-md py-2 text-xs font-medium ${
+                          periodeRapide === opt.v ? 'bg-havane text-white' : 'text-encre/60'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    value={commentaireRapide}
+                    onChange={(e) => setCommentaireRapide(e.target.value)}
+                    placeholder="Commentaire (optionnel)"
+                    rows={2}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={envoyerDemandeRapide}
+                      disabled={envoiDemandeRapide}
+                      className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      {envoiDemandeRapide ? 'Envoi…' : 'Envoyer la demande'}
+                    </button>
+                    <button
+                      onClick={() => setDemandeRapideJour(null)}
+                      className="px-3 rounded-lg border border-gray-300 text-encre/60 text-sm font-medium"
+                    >
+                      Fermer
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

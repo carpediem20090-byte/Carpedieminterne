@@ -147,6 +147,7 @@ export default function Fournisseurs() {
 
 function DetailFournisseur({ fournisseur, onRetour }: { fournisseur: Fournisseur; onRetour: () => void }) {
   const [commandes, setCommandes] = useState<CommandeFournisseur[]>([])
+  const [avoirs, setAvoirs] = useState<AvoirEchange[]>([])
   const [casses, setCasses] = useState<AvoirEchange[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -163,11 +164,13 @@ function DetailFournisseur({ fournisseur, onRetour }: { fournisseur: Fournisseur
           .from('avoirs_echanges')
           .select('*, profiles!signale_par(full_name)')
           .eq('fournisseur_id', fournisseur.id)
-          .eq('type', 'produit_casse')
+          .in('type', ['avoir_client', 'produit_casse'])
           .order('signale_le', { ascending: false }),
       ])
+      const tousAvoirsEchanges = (a.data as AvoirEchange[]) ?? []
       setCommandes((c.data as CommandeFournisseur[]) ?? [])
-      setCasses((a.data as AvoirEchange[]) ?? [])
+      setAvoirs(tousAvoirsEchanges.filter((x) => x.type === 'avoir_client'))
+      setCasses(tousAvoirsEchanges.filter((x) => x.type === 'produit_casse'))
       setLoading(false)
     }
     charger()
@@ -228,7 +231,31 @@ function DetailFournisseur({ fournisseur, onRetour }: { fournisseur: Fournisseur
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs font-medium text-encre/50 uppercase">Produits reçus cassés ({casses.length})</p>
+        <p className="text-xs font-medium text-encre/50 uppercase">Avoirs dus par ce fournisseur ({avoirs.length})</p>
+        {avoirs.length === 0 && !loading && (
+          <p className="text-sm text-encre/50">Aucun avoir en cours pour ce fournisseur.</p>
+        )}
+        {avoirs.map((a) => (
+          <div key={a.id} className="bg-white rounded-xl shadow-sm p-3">
+            <div className="flex items-center justify-between">
+              <span
+                className={`text-xs px-2 py-0.5 rounded-full ${
+                  a.traite ? 'bg-havane/10 text-havane' : 'bg-corail/15 text-corail'
+                }`}
+              >
+                {a.traite ? 'Réglé' : 'En attente'}
+              </span>
+              <span className="text-xs text-encre/40">{formatDate(a.signale_le)}</span>
+            </div>
+            <p className="text-sm text-encre/70 mt-1">{a.description}</p>
+            {a.montant != null && <p className="text-xs text-encre/50 mt-1">Montant : {a.montant}€</p>}
+            <p className="text-xs text-encre/40 mt-1">Signalé par {a.profiles?.full_name ?? '—'}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium text-encre/50 uppercase">Casse / Périmé / Perte / Vol ({casses.length})</p>
         {casses.length === 0 && !loading && (
           <p className="text-sm text-encre/50">Rien de signalé pour ce fournisseur.</p>
         )}

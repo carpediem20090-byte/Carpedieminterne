@@ -1,12 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { supabase, type AvoirEchange, type Fournisseur } from '../lib/supabase'
+import { supabase, uploaderDocument, urlDocument, type AvoirEchange, type Fournisseur } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 
 const TYPES = [
-  { v: 'avoir_client', label: 'Avoir client' },
+  { v: 'avoir_client', label: 'Avoir (fournisseur)' },
   { v: 'echange_client', label: 'Échange client' },
-  { v: 'produit_casse', label: 'Reçu cassé' },
+  { v: 'produit_casse', label: 'Casse / Périmé / Perte / Vol' },
 ] as const
+
+function arrondi(n: number) {
+  return Math.round(n * 100) / 100
+}
 
 function labelType(t: AvoirEchange['type']) {
   return TYPES.find((o) => o.v === t)?.label ?? t
@@ -22,11 +26,14 @@ export default function AvoirsEchanges() {
   const [description, setDescription] = useState('')
   const [montant, setMontant] = useState('')
   const [fournisseurId, setFournisseurId] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
   const [envoi, setEnvoi] = useState(false)
 
   const [ouverte, setOuverte] = useState<string | null>(null)
   const [reponse, setReponse] = useState('')
   const [envoiReponse, setEnvoiReponse] = useState(false)
+
+  const [annee, setAnnee] = useState(new Date().getFullYear())
 
   async function charger() {
     setLoading(true)
@@ -50,21 +57,31 @@ export default function AvoirsEchanges() {
   async function ajouter(e: FormEvent) {
     e.preventDefault()
     if (!description.trim() || !profile) return
+    if (type === 'avoir_client' && !fournisseurId) return
     setEnvoi(true)
+    const photoUrl = photo ? await uploaderDocument(photo, 'avoirs-echanges') : null
     const { error } = await supabase.from('avoirs_echanges').insert({
       type,
       description: description.trim(),
       montant: montant ? Number(montant) : null,
       signale_par: profile.id,
-      fournisseur_id: type === 'produit_casse' && fournisseurId ? fournisseurId : null,
+      fournisseur_id: fournisseurId || null,
+      photo_url: photoUrl,
     })
     setEnvoi(false)
     if (!error) {
       setDescription('')
       setMontant('')
       setFournisseurId('')
+      setPhoto(null)
       charger()
     }
+  }
+
+  async function ajouterPhoto(id: string, fichier: File) {
+    const chemin = await uploaderDocument(fichier, 'avoirs-echanges')
+    await supabase.from('avoirs_echanges').update({ photo_url: chemin }).eq('id', id)
+    charger()
   }
 
   async function marquerTraite(id: string) {
@@ -114,8 +131,55 @@ export default function AvoirsEchanges() {
       <div>
         <h1 className="text-lg font-semibold text-havane">Avoirs & échanges</h1>
         <p className="text-sm text-encre/60">
-          Produits ramenés par un client (avoir, échange) ou reçus cassés d'un fournisseur.
+          Avoir dû par un fournisseur, échange client, ou perte de stock (casse, périmé, perte, vol).
         </p>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="font-medium text-sm text-encre/80">Total sur l'année</h2>
+        <div className="flex items-center justify-center gap-4">
+          <button
+            onClick={() => setAnnee((a) => a - 1)}
+            aria-label="Année précédente"
+            className="w-9 h-9 shrink-0 rounded-full bg-white shadow-sm text-havane text-lg font-medium"
+          >
+            ‹
+          </button>
+          <span className="text-sm font-semibold text-encre min-w-[60px] text-center">{annee}</span>
+          <button
+            onClick={() => setAnnee((a) => a + 1)}
+            aria-label="Année suivante"
+            className="w-9 h-9 shrink-0 rounded-full bg-white shadow-sm text-havane text-lg font-medium"
+          >
+            ›
+          </button>
+        </div>
+        <div className="bg-white rounded-2xl shadow-sm p-4 space-y-2 text-sm">
+          {TYPES.map((t) => (
+            <div key={t.v} className="flex items-center justify-between">
+              <span className="text-encre/70">{t.label}</span>
+              <span className="font-medium">
+                {arrondi(
+                  liste
+                    .filter((a) => a.type === t.v && a.signale_le.slice(0, 4) === String(annee))
+                    .reduce((s, a) => s + (a.montant ?? 0), 0)
+                )}
+                €
+              </span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100 font-semibold">
+            <span>Total</span>
+            <span>
+              {arrondi(
+                liste
+                  .filter((a) => a.signale_le.slice(0, 4) === String(annee))
+                  .reduce((s, a) => s + (a.montant ?? 0), 0)
+              )}
+              €
+            </span>
+          </div>
+        </div>
       </div>
 
       <form onSubmit={ajouter} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
@@ -136,7 +200,13 @@ export default function AvoirsEchanges() {
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Ex : Briquet Zippo, client remboursé / échangé, ou reçu cassé à la livraison"
+          placeholder={
+            type === 'avoir_client'
+              ? 'Ex : Colis Camel arrivé cassé, avoir demandé au fournisseur'
+              : type === 'echange_client'
+              ? 'Ex : Briquet Zippo, client remboursé / échangé'
+              : 'Ex : précise le cas — casse, périmé, perte, vol…'
+          }
           rows={2}
           className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane resize-none"
         />
@@ -151,26 +221,40 @@ export default function AvoirsEchanges() {
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
           />
         </div>
-        {type === 'produit_casse' && (
-          <div>
-            <label className="block text-xs font-medium mb-1 text-encre/60">Fournisseur (optionnel)</label>
-            <select
-              value={fournisseurId}
-              onChange={(e) => setFournisseurId(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
-            >
-              <option value="">—</option>
-              {fournisseurs.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nom}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div>
+          <label className="block text-xs font-medium mb-1 text-encre/60">Photo (optionnel)</label>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => setPhoto(e.target.files?.[0] ?? null)}
+            className="w-full text-sm"
+          />
+          {photo && <p className="text-xs text-havane mt-1">{photo.name}</p>}
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1 text-encre/60">
+            Fournisseur {type === 'avoir_client' ? 'concerné' : '(optionnel)'}
+          </label>
+          <select
+            value={fournisseurId}
+            onChange={(e) => setFournisseurId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
+          >
+            <option value="">—</option>
+            {fournisseurs.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.nom}
+              </option>
+            ))}
+          </select>
+          {type === 'avoir_client' && !fournisseurId && (
+            <p className="text-xs text-encre/40 mt-1">Choisis le fournisseur qui doit cet avoir.</p>
+          )}
+        </div>
         <button
           type="submit"
-          disabled={envoi || !description.trim()}
+          disabled={envoi || !description.trim() || (type === 'avoir_client' && !fournisseurId)}
           className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50"
         >
           {envoi ? 'Enregistrement…' : 'Ajouter'}
@@ -194,6 +278,7 @@ export default function AvoirsEchanges() {
               onEnregistrerReponse={() => enregistrerReponse(a.id)}
               onMarquerTraite={() => marquerTraite(a.id)}
               onSupprimer={() => supprimer(a.id)}
+              onAjouterPhoto={(f) => ajouterPhoto(a.id, f)}
             />
           ))}
         </div>
@@ -215,6 +300,7 @@ export default function AvoirsEchanges() {
               onEnregistrerReponse={() => enregistrerReponse(a.id)}
               onRemettreEnAttente={() => remettreEnAttente(a.id)}
               onSupprimer={() => supprimer(a.id)}
+              onAjouterPhoto={(f) => ajouterPhoto(a.id, f)}
             />
           ))}
         </div>
@@ -239,6 +325,7 @@ function CarteAvoir({
   onMarquerTraite,
   onRemettreEnAttente,
   onSupprimer,
+  onAjouterPhoto,
 }: {
   a: AvoirEchange
   traite?: boolean
@@ -251,6 +338,7 @@ function CarteAvoir({
   onMarquerTraite?: () => void
   onRemettreEnAttente?: () => void
   onSupprimer: () => void
+  onAjouterPhoto: (fichier: File) => Promise<void>
 }) {
   return (
     <div className={`bg-white rounded-xl shadow-sm p-3 ${traite ? 'opacity-80' : ''}`}>
@@ -274,6 +362,7 @@ function CarteAvoir({
 
       {ouverte && (
         <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+          {a.photo_url ? <PhotoAvoir chemin={a.photo_url} /> : <AjoutPhoto onAjouter={onAjouterPhoto} />}
           <textarea
             value={reponse}
             onChange={(e) => onChangeReponse(e.target.value)}
@@ -304,6 +393,56 @@ function CarteAvoir({
             </button>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+function PhotoAvoir({ chemin }: { chemin: string }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    urlDocument(chemin).then(setUrl)
+  }, [chemin])
+
+  if (!url) return <p className="text-xs text-encre/40">Chargement de la photo…</p>
+
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block">
+      <img src={url} alt="Photo du produit" className="w-full max-h-48 object-contain rounded-lg border border-gray-100" />
+    </a>
+  )
+}
+
+function AjoutPhoto({ onAjouter }: { onAjouter: (fichier: File) => Promise<void> }) {
+  const [fichier, setFichier] = useState<File | null>(null)
+  const [envoi, setEnvoi] = useState(false)
+
+  async function envoyer() {
+    if (!fichier) return
+    setEnvoi(true)
+    await onAjouter(fichier)
+    setEnvoi(false)
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-encre/60">Ajouter une photo</label>
+      <input
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => setFichier(e.target.files?.[0] ?? null)}
+        className="w-full text-sm"
+      />
+      {fichier && (
+        <button
+          onClick={envoyer}
+          disabled={envoi}
+          className="text-xs font-medium text-havane underline disabled:opacity-50"
+        >
+          {envoi ? 'Envoi…' : 'Enregistrer la photo'}
+        </button>
       )}
     </div>
   )

@@ -5,7 +5,6 @@ import {
   urlDocument,
   type CommandeFournisseur,
   type Fournisseur,
-  type ProduitCatalogue,
   type ReceptionFournisseur,
 } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
@@ -14,27 +13,25 @@ export default function Commandes() {
   const { profile } = useAuth()
   const [commandes, setCommandes] = useState<CommandeFournisseur[]>([])
   const [fournisseurs, setFournisseurs] = useState<Fournisseur[]>([])
-  const [catalogue, setCatalogue] = useState<ProduitCatalogue[]>([])
   const [loading, setLoading] = useState(true)
   const [fournisseurId, setFournisseurId] = useState('')
   const [produits, setProduits] = useState('')
+  const [marque, setMarque] = useState('')
   const [envoi, setEnvoi] = useState(false)
   const [commandeOuverte, setCommandeOuverte] = useState<string | null>(null)
   const [historiqueOuvert, setHistoriqueOuvert] = useState(false)
 
   async function charger() {
     setLoading(true)
-    const [c, f, p] = await Promise.all([
+    const [c, f] = await Promise.all([
       supabase
         .from('commandes_fournisseurs')
         .select('*, profiles(full_name), fournisseurs(nom, telephone)')
         .order('date_commande', { ascending: false }),
       supabase.from('fournisseurs').select('*').order('nom', { ascending: true }),
-      supabase.from('produits_catalogue').select('*').order('nom', { ascending: true }),
     ])
     setCommandes((c.data as CommandeFournisseur[]) ?? [])
     setFournisseurs((f.data as Fournisseur[]) ?? [])
-    setCatalogue((p.data as ProduitCatalogue[]) ?? [])
     setLoading(false)
   }
 
@@ -48,6 +45,7 @@ export default function Commandes() {
     setEnvoi(true)
     const { error } = await supabase.from('commandes_fournisseurs').insert({
       fournisseur_id: fournisseurId || null,
+      marque: marque.trim() || null,
       produits: produits.trim(),
       creee_par: profile.id,
       statut: 'a_commander',
@@ -55,6 +53,7 @@ export default function Commandes() {
     setEnvoi(false)
     if (!error) {
       setFournisseurId('')
+      setMarque('')
       setProduits('')
       charger()
     }
@@ -84,34 +83,12 @@ export default function Commandes() {
     charger()
   }
 
-  async function ajouterProduitCatalogue(fournisseurCible: string, nom: string) {
-    if (!profile || !nom.trim()) return null
-    const { data, error } = await supabase
-      .from('produits_catalogue')
-      .insert({ fournisseur_id: fournisseurCible, nom: nom.trim(), cree_par: profile.id })
-      .select()
-      .single()
-    if (error || !data) return null
-    const produit = data as ProduitCatalogue
-    setCatalogue((prev) => [...prev, produit].sort((a, b) => a.nom.localeCompare(b.nom)))
-    return produit
+  async function modifierProduitCommande(id: string, texte: string) {
+    await supabase.from('commandes_fournisseurs').update({ produits: texte }).eq('id', id)
   }
 
-  async function supprimerProduitCatalogue(id: string) {
-    if (!window.confirm('Retirer ce produit du catalogue ?')) return
-    await supabase.from('produits_catalogue').delete().eq('id', id)
-    setCatalogue((prev) => prev.filter((p) => p.id !== id))
-  }
-
-  async function validerCommandeRapide(fournisseurCible: string, texteProduits: string) {
-    if (!profile || !texteProduits.trim()) return
-    await supabase.from('commandes_fournisseurs').insert({
-      fournisseur_id: fournisseurCible,
-      produits: texteProduits.trim(),
-      creee_par: profile.id,
-      statut: 'commande',
-      date_commande: new Date().toISOString(),
-    })
+  async function modifierMarqueCommande(id: string, marqueValeur: string) {
+    await supabase.from('commandes_fournisseurs').update({ marque: marqueValeur.trim() || null }).eq('id', id)
     charger()
   }
 
@@ -135,22 +112,30 @@ export default function Commandes() {
     (a[1][0].fournisseurs?.nom ?? '').localeCompare(b[1][0].fournisseurs?.nom ?? '')
   )
 
+  // Parmi les produits qui n'ont pas encore de fournisseur, regroupe ceux qui
+  // partagent une marque (ex : tous les "Camel"), pour pouvoir leur assigner
+  // un fournisseur à tous en une fois quand on a le temps de trier.
+  const groupesParMarque = new Map<string, CommandeFournisseur[]>()
+  const sansFournisseurNiMarque: CommandeFournisseur[] = []
+  for (const c of sansFournisseur) {
+    const marqueNom = c.marque?.trim()
+    if (!marqueNom) {
+      sansFournisseurNiMarque.push(c)
+      continue
+    }
+    if (!groupesParMarque.has(marqueNom)) groupesParMarque.set(marqueNom, [])
+    groupesParMarque.get(marqueNom)!.push(c)
+  }
+  const groupesMarqueTries = Array.from(groupesParMarque.entries()).sort((a, b) => a[0].localeCompare(b[0]))
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-lg font-semibold text-havane">Commandes fournisseurs</h1>
         <p className="text-sm text-encre/60">
-          Commande rapide via le catalogue d'un fournisseur, ou note un produit à commander plus tard.
+          Note un produit à commander, puis trie par fournisseur et valide quand il est là.
         </p>
       </div>
-
-      <CommandeRapide
-        fournisseurs={fournisseurs}
-        catalogue={catalogue}
-        onAjouterCatalogue={ajouterProduitCatalogue}
-        onSupprimerCatalogue={supprimerProduitCatalogue}
-        onValider={validerCommandeRapide}
-      />
 
       <form onSubmit={creerCommande} className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
         <div>
@@ -161,6 +146,15 @@ export default function Commandes() {
             placeholder="Ex : 10 boîtes cigares X, 5 briquets Y…"
             rows={2}
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane resize-none"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium mb-1">Marque (optionnel)</label>
+          <input
+            value={marque}
+            onChange={(e) => setMarque(e.target.value)}
+            placeholder="Ex : Camel, Marlboro…"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane"
           />
         </div>
         <div>
@@ -198,23 +192,46 @@ export default function Commandes() {
           {groupesTries.map(([cle, items]) => (
             <GroupeACommander
               key={cle}
+              titre={items[0].fournisseurs?.nom || 'Fournisseur à définir'}
+              motifRegroupement="fournisseur"
               items={items}
               fournisseurs={fournisseurs}
               onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
               onSupprimer={supprimerCommande}
+              onModifier={modifierProduitCommande}
+              onModifierMarque={modifierMarqueCommande}
             />
           ))}
-          {sansFournisseur.map((c) => (
+          {groupesMarqueTries.map(([marqueNom, items]) => (
+            <GroupeACommander
+              key={`marque-${marqueNom}`}
+              titre={marqueNom}
+              motifRegroupement="marque"
+              items={items}
+              fournisseurs={fournisseurs}
+              onAssignerFournisseur={assignerFournisseur}
+              onCommandee={marquerCommandee}
+              onAnnuler={annulerCommande}
+              onSupprimer={supprimerCommande}
+              onModifier={modifierProduitCommande}
+              onModifierMarque={modifierMarqueCommande}
+            />
+          ))}
+          {sansFournisseurNiMarque.map((c) => (
             <GroupeACommander
               key={c.id}
+              titre="Fournisseur à définir"
+              motifRegroupement="fournisseur"
               items={[c]}
               fournisseurs={fournisseurs}
               onAssignerFournisseur={assignerFournisseur}
               onCommandee={marquerCommandee}
               onAnnuler={annulerCommande}
               onSupprimer={supprimerCommande}
+              onModifier={modifierProduitCommande}
+              onModifierMarque={modifierMarqueCommande}
             />
           ))}
         </div>
@@ -268,24 +285,57 @@ export default function Commandes() {
 
 function GroupeACommander({
   items,
+  titre,
+  motifRegroupement,
   fournisseurs,
   onAssignerFournisseur,
   onCommandee,
   onAnnuler,
   onSupprimer,
+  onModifier,
+  onModifierMarque,
 }: {
   items: CommandeFournisseur[]
+  titre: string
+  motifRegroupement: 'fournisseur' | 'marque'
   fournisseurs: Fournisseur[]
   onAssignerFournisseur: (ids: string[], fournisseurId: string) => Promise<void>
   onCommandee: (ids: string[]) => Promise<void>
   onAnnuler: (id: string) => void
   onSupprimer: (id: string) => void
+  onModifier: (id: string, texte: string) => Promise<void>
+  onModifierMarque: (id: string, marque: string) => Promise<void>
 }) {
   const [ouvert, setOuvert] = useState(false)
   const [fournisseurId, setFournisseurId] = useState(items[0].fournisseur_id ?? '')
   const [envoiAssignation, setEnvoiAssignation] = useState(false)
   const [envoiCommande, setEnvoiCommande] = useState(false)
+  const [coches, setCoches] = useState<Set<string>>(new Set(items.map((c) => c.id)))
+  const [textes, setTextes] = useState<Record<string, string>>({})
+  const [marqueValeur, setMarqueValeur] = useState(items[0].marque ?? '')
+  const [envoiMarque, setEnvoiMarque] = useState(false)
   const plusieurs = items.length > 1
+  const afficherTagMarque = motifRegroupement === 'fournisseur'
+
+  function texteDe(c: CommandeFournisseur) {
+    return textes[c.id] ?? c.produits
+  }
+
+  async function enregistrerMarque() {
+    if (marqueValeur.trim() === (items[0].marque ?? '').trim()) return
+    setEnvoiMarque(true)
+    await onModifierMarque(items[0].id, marqueValeur)
+    setEnvoiMarque(false)
+  }
+
+  function basculerCoche(id: string) {
+    setCoches((prev) => {
+      const copie = new Set(prev)
+      if (copie.has(id)) copie.delete(id)
+      else copie.add(id)
+      return copie
+    })
+  }
 
   async function changerFournisseur(valeur: string) {
     setFournisseurId(valeur)
@@ -299,8 +349,16 @@ function GroupeACommander({
   }
 
   async function confirmerCommande() {
+    const idsAValider = plusieurs ? items.filter((c) => coches.has(c.id)).map((c) => c.id) : items.map((c) => c.id)
+    if (idsAValider.length === 0) return
     setEnvoiCommande(true)
-    await onCommandee(items.map((c) => c.id))
+    // Enregistre d'abord les éventuelles corrections de texte (ex : ce que le
+    // représentant a vraiment, différent de ce qui avait été noté au départ).
+    const modifs = items.filter((c) => textes[c.id] !== undefined && textes[c.id] !== c.produits)
+    if (modifs.length > 0) {
+      await Promise.all(modifs.map((c) => onModifier(c.id, textes[c.id])))
+    }
+    await onCommandee(idsAValider)
     setEnvoiCommande(false)
     setOuvert(false)
   }
@@ -309,7 +367,7 @@ function GroupeACommander({
     <div className="bg-white rounded-xl shadow-sm p-3">
       <button onClick={() => setOuvert(!ouvert)} className="w-full text-left">
         <div className="flex items-center justify-between">
-          <span className="font-medium text-sm">{items[0].fournisseurs?.nom || 'Fournisseur à définir'}</span>
+          <span className="font-medium text-sm">{titre}</span>
           <span className="text-xs px-2 py-0.5 rounded-full bg-corail/15 text-corail">
             À commander{plusieurs ? ` (${items.length})` : ''}
           </span>
@@ -317,19 +375,37 @@ function GroupeACommander({
         <div className="mt-1 space-y-1">
           {items.map((c) => (
             <p key={c.id} className="text-sm text-encre/70">
+              {afficherTagMarque && c.marque && <span className="text-encre/40">{c.marque} · </span>}
               {c.produits}
             </p>
           ))}
         </div>
         <p className="text-xs text-encre/40 mt-1">
           {plusieurs
-            ? `${items.length} produits notés à part, regroupés ici car même fournisseur`
-            : `Ajouté par ${items[0].profiles?.full_name ?? '—'} · ${formatDate(items[0].date_commande)}`}
+            ? motifRegroupement === 'marque'
+              ? `${items.length} produits notés à part, regroupés ici car même marque`
+              : `${items.length} produits notés à part, regroupés ici car même fournisseur`
+            : `${afficherTagMarque && items[0].marque ? items[0].marque + ' · ' : ''}Ajouté par ${
+                items[0].profiles?.full_name ?? '—'
+              } · ${formatDate(items[0].date_commande)}`}
         </p>
       </button>
 
       {ouvert && (
         <div className="mt-3 pt-3 border-t border-gray-100 space-y-2">
+          {!plusieurs && (
+            <div>
+              <label className="block text-xs font-medium mb-1 text-encre/60">Marque (optionnel)</label>
+              <input
+                value={marqueValeur}
+                onChange={(e) => setMarqueValeur(e.target.value)}
+                onBlur={enregistrerMarque}
+                placeholder="Ex : Camel, Marlboro…"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
+              />
+              {envoiMarque && <p className="text-xs text-encre/40 mt-1">Enregistrement…</p>}
+            </div>
+          )}
           <label className="block text-xs font-medium mb-1 text-encre/60">Fournisseur</label>
           <select
             value={fournisseurId}
@@ -345,13 +421,53 @@ function GroupeACommander({
           </select>
           {envoiAssignation && <p className="text-xs text-encre/40">Enregistrement du fournisseur…</p>}
 
+          {plusieurs && (
+            <div className="space-y-1.5 pt-1">
+              <p className="text-xs font-medium text-encre/60">
+                Coche ce que le fournisseur a vraiment, corrige si besoin :
+              </p>
+              {items.map((c) => (
+                <div key={c.id} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={coches.has(c.id)}
+                    onChange={() => basculerCoche(c.id)}
+                    className="w-4 h-4 shrink-0 accent-havane"
+                  />
+                  <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                    {afficherTagMarque && c.marque && (
+                      <span className="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-havane/10 text-havane font-medium">
+                        {c.marque}
+                      </span>
+                    )}
+                    <input
+                      value={texteDe(c)}
+                      onChange={(e) => setTextes((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                      className={`flex-1 min-w-0 rounded-lg border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-havane ${
+                        coches.has(c.id) ? 'border-gray-300' : 'border-gray-200 text-encre/40 bg-gray-50'
+                      }`}
+                    />
+                  </div>
+                  <span className="flex items-center gap-2 shrink-0 text-xs">
+                    <button onClick={() => onAnnuler(c.id)} className="text-corail underline">
+                      Retirer
+                    </button>
+                    <button onClick={() => onSupprimer(c.id)} className="text-corail underline">
+                      Suppr.
+                    </button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-1">
             <button
               onClick={confirmerCommande}
-              disabled={envoiCommande || !fournisseurId}
+              disabled={envoiCommande || !fournisseurId || (plusieurs && coches.size === 0)}
               className="flex-1 bg-havane text-white rounded-lg py-2 text-sm font-medium disabled:opacity-50"
             >
-              {envoiCommande ? 'Enregistrement…' : plusieurs ? 'Marquer tout commandé' : 'Marquer commandé'}
+              {envoiCommande ? 'Enregistrement…' : plusieurs ? 'Valider la commande' : 'Marquer commandé'}
             </button>
             {!plusieurs && (
               <button
@@ -370,228 +486,7 @@ function GroupeACommander({
               Supprimer définitivement
             </button>
           )}
-          {plusieurs && (
-            <div className="space-y-1 pt-1">
-              {items.map((c) => (
-                <div key={c.id} className="flex items-center justify-between text-xs text-encre/50">
-                  <span>{c.produits}</span>
-                  <span className="flex items-center gap-2 shrink-0 ml-2">
-                    <button onClick={() => onAnnuler(c.id)} className="text-corail underline">
-                      Retirer
-                    </button>
-                    <button onClick={() => onSupprimer(c.id)} className="text-corail underline">
-                      Supprimer
-                    </button>
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
-      )}
-    </div>
-  )
-}
-
-function CommandeRapide({
-  fournisseurs,
-  catalogue,
-  onAjouterCatalogue,
-  onSupprimerCatalogue,
-  onValider,
-}: {
-  fournisseurs: Fournisseur[]
-  catalogue: ProduitCatalogue[]
-  onAjouterCatalogue: (fournisseurId: string, nom: string) => Promise<ProduitCatalogue | null>
-  onSupprimerCatalogue: (id: string) => void
-  onValider: (fournisseurId: string, texte: string) => Promise<void>
-}) {
-  const [fournisseurId, setFournisseurId] = useState('')
-  const [panier, setPanier] = useState<Map<string, { nom: string; quantite: number }>>(new Map())
-  const [nouveauProduit, setNouveauProduit] = useState('')
-  const [ajoutEnCours, setAjoutEnCours] = useState(false)
-  const [validation, setValidation] = useState(false)
-  const [modeEdition, setModeEdition] = useState(false)
-
-  const produitsFournisseur = catalogue.filter((p) => p.fournisseur_id === fournisseurId)
-  const fournisseurChoisi = fournisseurs.find((f) => f.id === fournisseurId)
-
-  function ajouterAuPanier(id: string, nom: string) {
-    setPanier((prev) => {
-      const copie = new Map(prev)
-      const existant = copie.get(id)
-      copie.set(id, { nom, quantite: (existant?.quantite ?? 0) + 1 })
-      return copie
-    })
-  }
-
-  function changerQuantite(id: string, delta: number) {
-    setPanier((prev) => {
-      const copie = new Map(prev)
-      const existant = copie.get(id)
-      if (!existant) return prev
-      const nouvelleQuantite = existant.quantite + delta
-      if (nouvelleQuantite <= 0) {
-        copie.delete(id)
-      } else {
-        copie.set(id, { ...existant, quantite: nouvelleQuantite })
-      }
-      return copie
-    })
-  }
-
-  async function ajouterNouveauProduit() {
-    if (!nouveauProduit.trim() || !fournisseurId) return
-    setAjoutEnCours(true)
-    const produit = await onAjouterCatalogue(fournisseurId, nouveauProduit)
-    setAjoutEnCours(false)
-    setNouveauProduit('')
-    if (produit) ajouterAuPanier(produit.id, produit.nom)
-  }
-
-  async function valider() {
-    if (!fournisseurId || panier.size === 0) return
-    const texte = Array.from(panier.values())
-      .map((item) => `${item.quantite}x ${item.nom}`)
-      .join(', ')
-    setValidation(true)
-    await onValider(fournisseurId, texte)
-    setValidation(false)
-    setPanier(new Map())
-  }
-
-  return (
-    <div className="bg-white rounded-2xl shadow-sm p-4 space-y-3">
-      <div>
-        <h2 className="font-medium text-sm text-havane">Commande rapide</h2>
-        <p className="text-xs text-encre/50">
-          Choisis le fournisseur, clique sur ce que tu veux commander, puis valide.
-        </p>
-      </div>
-
-      <select
-        value={fournisseurId}
-        onChange={(e) => {
-          setFournisseurId(e.target.value)
-          setPanier(new Map())
-          setModeEdition(false)
-        }}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white"
-      >
-        <option value="">Choisir un fournisseur…</option>
-        {fournisseurs.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.nom}
-          </option>
-        ))}
-      </select>
-
-      {fournisseurId && (
-        <>
-          {produitsFournisseur.length > 0 && (
-            <div>
-              <div className="flex flex-wrap gap-2">
-                {produitsFournisseur.map((p) => {
-                  const dansLePanier = panier.get(p.id)
-                  if (modeEdition) {
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => onSupprimerCatalogue(p.id)}
-                        className="px-3 py-1.5 rounded-full text-sm border border-corail text-corail bg-corail/5"
-                      >
-                        {p.nom} ✕
-                      </button>
-                    )
-                  }
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => ajouterAuPanier(p.id, p.nom)}
-                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
-                        dansLePanier
-                          ? 'bg-havane text-white border-havane'
-                          : 'bg-white text-encre/80 border-gray-300'
-                      }`}
-                    >
-                      {p.nom}
-                      {dansLePanier ? ` (${dansLePanier.quantite})` : ''}
-                    </button>
-                  )
-                })}
-              </div>
-              <button
-                onClick={() => setModeEdition(!modeEdition)}
-                className="text-xs text-havane underline mt-2"
-              >
-                {modeEdition ? 'Terminé' : 'Modifier le catalogue'}
-              </button>
-            </div>
-          )}
-
-          {produitsFournisseur.length === 0 && (
-            <p className="text-xs text-encre/40">
-              Aucun produit noté pour ce fournisseur pour l'instant. Ajoute-en un ci-dessous.
-            </p>
-          )}
-
-          <div className="flex gap-2">
-            <input
-              value={nouveauProduit}
-              onChange={(e) => setNouveauProduit(e.target.value)}
-              placeholder="Ajouter un produit au catalogue…"
-              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-havane"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault()
-                  ajouterNouveauProduit()
-                }
-              }}
-            />
-            <button
-              onClick={ajouterNouveauProduit}
-              disabled={ajoutEnCours || !nouveauProduit.trim()}
-              className="px-4 rounded-lg bg-havane/10 text-havane text-sm font-medium disabled:opacity-50"
-            >
-              Ajouter
-            </button>
-          </div>
-
-          {panier.size > 0 && (
-            <div className="pt-2 border-t border-gray-100 space-y-2">
-              <p className="text-xs font-medium text-encre/50 uppercase">
-                Commande pour {fournisseurChoisi?.nom}
-              </p>
-              {Array.from(panier.entries()).map(([id, item]) => (
-                <div key={id} className="flex items-center justify-between text-sm">
-                  <span className="text-encre/80">{item.nom}</span>
-                  <span className="flex items-center gap-2">
-                    <button
-                      onClick={() => changerQuantite(id, -1)}
-                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
-                    >
-                      −
-                    </button>
-                    <span className="w-5 text-center">{item.quantite}</span>
-                    <button
-                      onClick={() => changerQuantite(id, 1)}
-                      className="w-7 h-7 rounded-full bg-gray-100 text-encre/70 font-medium"
-                    >
-                      +
-                    </button>
-                  </span>
-                </div>
-              ))}
-              <button
-                onClick={valider}
-                disabled={validation}
-                className="w-full bg-havane text-white rounded-lg py-2.5 font-medium disabled:opacity-50 mt-1"
-              >
-                {validation ? 'Validation…' : 'Valider la commande'}
-              </button>
-            </div>
-          )}
-        </>
       )}
     </div>
   )
