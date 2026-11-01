@@ -1,3 +1,7 @@
+@font-face { font-family: 'EtqPopR'; src: url('/etiquettes/fonts/Poppins-Regular.ttf') format('truetype'); font-display: block; }
+@font-face { font-family: 'EtqPopM'; src: url('/etiquettes/fonts/Poppins-Medium.ttf') format('truetype'); font-display: block; }
+@font-face { font-family: 'EtqPopB'; src: url('/etiquettes/fonts/Poppins-Bold.ttf') format('truetype'); font-display: block; }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

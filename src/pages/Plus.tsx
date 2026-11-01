@@ -7,6 +7,7 @@ const modules = [
   { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: false },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏭', patron: false },
   { to: '/factures', label: 'Factures', icon: '🧾', patron: true },
+  { to: '/etiquettes', label: 'Étiquettes prix', icon: '🏷️', patron: false },
   { to: '/stock', label: 'Stock & rangement', icon: '🗂️', patron: false },
   { to: '/contacts', label: 'Carnet téléphonique', icon: '📞', patron: false },
   { to: '/demandes', label: 'Demandes clients', icon: '💬', patron: false },
