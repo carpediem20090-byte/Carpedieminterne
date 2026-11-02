@@ -231,7 +231,7 @@ function Fiche({ article, rayons, estPatron, codesExistants, onFermer, onEnregis
     ...a,
     code: a.code.replace(/\D/g, ''),
     prix: parseFloat(prixTxt.replace(',', '.')) || 0,
-    compo: cig && compo[0] && compo[1] && compo[2].trim() ? [compo[0], compo[1], compo[2].trim()] : null,
+    compo: cig && (compo[0] || compo[1] || compo[2].trim()) ? [compo[0] || '', compo[1] || '', compo[2].trim()] : null,
     infos: cig ? null : (a.infos || []).map(x => x.trim()).filter(Boolean),
     force_source: a.force !== article.force ? (a.force ? 'perso' : null) : article.force_source,
     num: a.num?.trim() || null, marque: a.marque?.trim() || null, modele: a.modele?.trim() || null,

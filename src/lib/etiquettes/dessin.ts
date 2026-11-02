@@ -50,15 +50,16 @@ function eanBits(s) {
 }
 
 /* ---------- complétude ---------- */
+const compoOk = (c: string[] | null) => !!(c && c.length === 3 && c.every(x => x && x.trim()))
 export function complet(a: Article) {
   if (!estCigare(a)) return !!((a.modele || a.marque) && a.prix && codeOk(a.code) && !a.a_verifier)
-  return !!(a.origine && a.force && a.temps && a.compo && !a.a_verifier)
+  return !!(a.origine && a.force && a.temps && compoOk(a.compo) && !a.a_verifier)
 }
 export function manques(a: Article) {
   const L = []
   if (!estCigare(a)) { if (!a.prix) L.push('prix'); if (a.a_verifier) L.push('code à vérifier'); return L }
   if (!a.origine) L.push('origine'); if (!a.force) L.push('force'); if (!a.temps) L.push('temps')
-  if (!a.compo) L.push('composition'); if (a.a_verifier) L.push('code à vérifier'); return L
+  if (!compoOk(a.compo)) L.push(a.compo && a.compo.some(x => x) ? 'composition partielle' : 'composition'); if (a.a_verifier) L.push('code à vérifier'); return L
 }
 
 /* ---------- mesure du texte (mêmes polices à l'écran et dans le PDF) ---------- */
@@ -189,8 +190,11 @@ export function dessiner(g, a: Article, bordure: boolean) {
   const pays = cig ? (a.origine || '') : '', tps = cig && a.temps ? '≈ ' + a.temps + ' min' : ''
   let lignes = []
   if (cig && a.compo) {
-    const [cp, sc, tr] = a.compo
-    if (cp === sc && sc === tr) lignes = ['Cape, sous-cape, tripe : ' + cp]
+    const [cp, sc, tr] = a.compo.map(x => (x || '').trim())
+    if (!cp || !sc || !tr) {
+      const parts = [['Cape', cp], ['Sous-cape', sc], ['Tripe', tr]].filter(([, v]) => v).map(([k, v]) => k + ' : ' + v)
+      if (parts.length) lignes = [parts.join('  ·  ')]
+    } else if (cp === sc && sc === tr) lignes = ['Cape, sous-cape, tripe : ' + cp]
     else if (sc === tr) lignes = ['Cape : ' + cp, 'Sous-cape, tripe : ' + sc]
     else if (cp === sc) lignes = ['Cape, sous-cape : ' + cp, 'Tripe : ' + tr]
     else lignes = ['Cape : ' + cp + '  ·  Sous-cape : ' + sc, 'Tripe : ' + tr]
