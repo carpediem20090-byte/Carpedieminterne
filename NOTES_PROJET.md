@@ -62,3 +62,12 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 
 - Avant toute modification importante : expliquer ce qui change, pourquoi, quelles données sont touchées, et le risque pour l'existant.
 - Les nouveautés passent d'abord par une **branche** (lien de test Vercel), puis sont fusionnées dans `main` après validation.
+
+## Enrichissement cigares (02/11/2026)
+- Origines ajoutées pour 54 cigares (sans origine : 102 → 48), via Cigaroscope + fiches fabricants/vendeurs.
+- D8 : Costa Rica + composition (guide) ; El Gordo = Léger, Short Salomon = Moyen (guide).
+- La Estrella : Honduras + compo ; Gigante = Moyen (guide).
+- Rép. dom. : Valentino Siesto, Silencio, Patoro, Angelenos, AVO, Davidoff, A. Flores, E.P. Carrillo, Pledge, Macanudo Vintage/Estate Reserve.
+- Nicaragua : Schizo, CAO Cameroon/Gold, Gurkha Treinta. Honduras : Alec Bradley Filthy Hooligan, Zamorano. Cuba : Edmundo Reserva, Epicure Especial.
+- Restent vides (pas sûr à 100 %) : Gadjo, Criolito, Final 8, Don Tomás/Fagot Don Tomas, Macanudo Red/Inspirado, Gurkha Koi/21 Solara, Kingdom, Historia, Osok, Nueva, Maca, Villa Vieja, Aroma, VegaFina Cheval, No Name, Edito, Chateau Diadem, Brevas, AJ 20th, CAO Firewalker.
+- Les mises à jour ont été faites en base uniquement là où le champ était vide (rien d'écrasé).
