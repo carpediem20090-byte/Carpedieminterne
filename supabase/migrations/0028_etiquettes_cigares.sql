@@ -203,7 +203,7 @@ insert into public.etiquettes_articles (code,num,rayon,marque,modele,prix,origin
 ('3100000015152','264','Cigares','Aladino','Robusto 50X5',18.9,'Honduras',45,null,null,null,false),
 ('7425634100569','265','Cigares','Aladino','Vintage Selection Toro',21.3,'Honduras',60,null,null,null,false),
 ('3100000015176','266','Cigares','Aladino','Patton 48X9',40.0,'Honduras',null,null,null,null,false),
-('811167021124','267','Cigares',null,'Encore Majestic 52X53.8',18.4,'Rép. dominicaine',30,2,'guide',array['Nicaragua','Nicaragua','Nicaragua']::text[],false),
+('811167021124','267','Cigares',null,'Encore Majestic 52X53.8',18.4,'Rép. dominicaine',45,2,'guide',array['Nicaragua','Nicaragua','Nicaragua']::text[],false),
 ('3100000015220','274','Cigares','Patoro','Jeroboam',16.0,null,null,null,null,null,false),
 ('7425634101030','275','Cigares','Aladino','Churchill',25.0,'Honduras',75,null,null,null,false),
 ('3100000024949','345','Cigares','Arturo Fuente','Numero 4',14.0,'Rép. dominicaine',40,4,'gamme',null,false),
