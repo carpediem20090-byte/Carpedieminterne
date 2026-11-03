@@ -87,7 +87,8 @@ function svgBackend(logo) {
     clipEnd() { out.push('</g>') },
   }
 }
-function pdfBackend(doc, logoData) {
+function pdfBackend(doc, logoData, polOk = true) {
+  const STD = { PopR: ['helvetica', 'normal'], PopM: ['helvetica', 'normal'], PopB: ['helvetica', 'bold'] }
   let ox = 0, oy = 0
   const hex = c => { c = c.replace('#', ''); return [parseInt(c.slice(0, 2), 16), parseInt(c.slice(2, 4), 16), parseInt(c.slice(4, 6), 16)] }
   return {
@@ -102,8 +103,8 @@ function pdfBackend(doc, logoData) {
     circle(x, y, r, fill, stroke = null, sw = 0) { let st = ''; if (fill) { doc.setFillColor(...hex(fill)); st += 'F' } if (stroke) { doc.setDrawColor(...hex(stroke)); doc.setLineWidth(sw); st += 'D' } doc.circle(ox + x, oy + y, r, st) },
     line(x1, y1, x2, y2, col, sw) { doc.setDrawColor(...hex(col)); doc.setLineWidth(sw); doc.setLineCap('round'); doc.line(ox + x1, oy + y1, ox + x2, oy + y2) },
     poly(pts, fill) { doc.setFillColor(...hex(fill)); const L = []; for (let i = 1; i < pts.length; i++) L.push([pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]]); doc.lines(L, ox + pts[0][0], oy + pts[0][1], [1, 1], 'F', true) },
-    text(t, x, y, f, pt, col, align = 'left') { doc.setFont(f, 'normal'); doc.setFontSize(pt); doc.setTextColor(...hex(col)); doc.text(String(t), ox + x, oy + y, { align, baseline: 'alphabetic' }) },
-    image(x, y, w, h) { doc.addImage(logoData, 'JPEG', ox + x, oy + y, w, h, 'logo', 'FAST') },
+    text(t, x, y, f, pt, col, align = 'left') { if (polOk) doc.setFont(f, 'normal'); else doc.setFont(...STD[f]); doc.setFontSize(pt); doc.setTextColor(...hex(col)); doc.text(String(t), ox + x, oy + y, { align, baseline: 'alphabetic' }) },
+    image(x, y, w, h) { if (!logoData) return; doc.addImage(logoData, 'JPEG', ox + x, oy + y, w, h, 'logo', 'FAST') },
     clipStart() {}, clipEnd() {},
   }
 }
@@ -236,30 +237,48 @@ export function etiquetteSVG(a: Article) {
 
 /* ---------- PDF ---------- */
 async function enBase64(url) {
-  const buf = await (await fetch(url)).arrayBuffer(); let s = ''; const b = new Uint8Array(buf)
-  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000))
+  const rep = await fetch(url, { cache: 'force-cache' })
+  if (!rep.ok) throw new Error('fichier introuvable : ' + url + ' (' + rep.status + ')')
+  const b = new Uint8Array(await rep.arrayBuffer()); let s = ''
+  for (let i = 0; i < b.length; i += 4096) s += String.fromCharCode.apply(null, Array.from(b.subarray(i, i + 4096)))
   return btoa(s)
 }
 let ressources = null
 async function chargerRessources() {
   if (ressources) return ressources
-  const [r, m, b, logo] = await Promise.all(['Regular', 'Medium', 'Bold'].map(w => enBase64(`/etiquettes/fonts/Poppins-${w}.ttf`)).concat([enBase64(LOGO_URL)]))
-  ressources = { polices: { PopR: r, PopM: m, PopB: b }, logo: 'data:image/jpeg;base64,' + logo }
-  return ressources
+  const res = { polices: null, logo: null }
+  try {
+    const [r, m, b] = await Promise.all(['Regular', 'Medium', 'Bold'].map(w => enBase64(`/etiquettes/fonts/Poppins-${w}.ttf`)))
+    res.polices = { PopR: r, PopM: m, PopB: b }
+  } catch (e) { console.warn('Polices indisponibles, police standard utilisée', e) }
+  try { res.logo = 'data:image/jpeg;base64,' + await enBase64(LOGO_URL) } catch (e) { console.warn('Logo indisponible', e) }
+  if (res.polices && res.logo) ressources = res
+  return res
+}
+async function importerJsPDF() {
+  try { return await import('jspdf') }
+  catch (e) { await new Promise(r => setTimeout(r, 800)); return await import('jspdf') }
 }
 export async function genererPDF(articles: Article[], format: 'a4' | 'rouleau'): Promise<Blob> {
-  const { jsPDF } = await import('jspdf')
+  if (!articles.length) throw new Error('aucune étiquette cochée')
+  let jsPDF
+  try { ({ jsPDF } = await importerJsPDF()) } catch (e) { throw new Error("le module PDF n'a pas pu se charger — recharge la page (version de l'appli mise à jour)") }
   const res = await chargerRessources()
   const doc = format === 'a4'
     ? new jsPDF({ unit: 'mm', format: 'a4', compress: true })
     : new jsPDF({ unit: 'mm', format: [W, H], orientation: 'landscape', compress: true })
-  for (const [n, b64] of Object.entries(res.polices)) { doc.addFileToVFS(n + '.ttf', b64); doc.addFont(n + '.ttf', n, 'normal') }
-  const g = pdfBackend(doc, res.logo)
+  let polOk = false
+  if (res.polices) {
+    try { for (const [n, b64] of Object.entries(res.polices)) { doc.addFileToVFS(n + '.ttf', b64 as string); doc.addFont(n + '.ttf', n, 'normal') } polOk = true }
+    catch (e) { console.warn('addFont', e) }
+  }
+  const g = pdfBackend(doc, res.logo, polOk)
+  const dessine = (a, bord) => { try { dessiner(g, a, bord) } catch (e) { throw new Error('étiquette N° ' + (a.num || a.code) + ' : ' + (e && e.message || e)) } }
   if (format === 'a4') {
     const ox = (210 - 4 * W) / 2, oy = (297 - 7 * H) / 2
-    articles.forEach((a, i) => { const k = i % 28; if (i && k === 0) doc.addPage(); g.setOrigin(ox + (k % 4) * W, oy + Math.floor(k / 4) * H); dessiner(g, a, true) })
+    articles.forEach((a, i) => { const k = i % 28; if (i && k === 0) doc.addPage(); g.setOrigin(ox + (k % 4) * W, oy + Math.floor(k / 4) * H); dessine(a, true) })
   } else {
-    articles.forEach((a, i) => { if (i) doc.addPage([W, H], 'landscape'); g.setOrigin(0, 0); dessiner(g, a, false) })
+    articles.forEach((a, i) => { if (i) doc.addPage([W, H], 'landscape'); g.setOrigin(0, 0); dessine(a, false) })
   }
   return doc.output('blob')
 }

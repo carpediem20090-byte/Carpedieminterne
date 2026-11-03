@@ -78,7 +78,7 @@ export default function Etiquettes() {
       const d = new Date(), nom = `Etiquettes_CarpeDiem_${format === 'a4' ? 'A4' : 'rouleau'}_${d.toISOString().slice(0, 10)}.pdf`
       const url = URL.createObjectURL(blob); const lien = document.createElement('a'); lien.href = url; lien.download = nom
       document.body.appendChild(lien); lien.click(); lien.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000)
-    } catch (e) { alert('Erreur pendant la création du PDF.') }
+    } catch (e) { console.error(e); alert('Erreur pendant la création du PDF :\n' + ((e && (e as Error).message) || String(e))) }
     setPdfEnCours(false)
   }
 
