@@ -308,6 +308,7 @@ export async function genererPDF(articles: Article[], format: 'a4' | 'rouleau'):
   if (!articles.length) throw new Error('aucune étiquette cochée')
   let jsPDF
   try { ({ jsPDF } = await importerJsPDF()) } catch (e) { throw new Error("le module PDF n'a pas pu se charger — recharge la page (version de l'appli mise à jour)") }
+  await chargerPolices()
   const res = await chargerRessources()
   const doc = format === 'a4'
     ? new jsPDF({ unit: 'mm', format: 'a4', compress: true })
