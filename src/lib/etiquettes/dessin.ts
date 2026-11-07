@@ -29,6 +29,11 @@ export const FORCES = ['', 'LÉGER', 'MOYEN', 'MOYEN-CORSÉ', 'CORSÉ']
 export const FCOL = { 1: '#2f6b3a', 2: '#1f4e8c', 3: '#b4471a', 4: '#8c1010' }
 export const RAYON_CIGARES = 'Cigares'
 export const LOGO_URL = '/etiquettes/logo.jpg'
+export const RAYON_ENFANTS = 'Enfants'
+export function estEnfant(a: Article) { return a.rayon === RAYON_ENFANTS }
+/* couleurs vives du rayon enfants : une par article (stable), décalée à l'impression si deux voisines se suivent */
+export const COULEURS_ENFANTS = ['#ff4f6d', '#ff8a2a', '#f7b500', '#5cbf2a', '#1a9be0', '#7b4fd6', '#ff5fb2', '#00b8b0']
+export function couleurEnfant(a: Article) { let h = 2166136261; for (const c of String(a.code || a.modele || '')) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) } h ^= h >>> 15; h = Math.imul(h, 2246822507); h ^= h >>> 13; return (h >>> 0) % COULEURS_ENFANTS.length }
 
 export function estCigare(a: Article) { return (a.rayon || RAYON_CIGARES) === RAYON_CIGARES }
 
@@ -128,7 +133,7 @@ function drapeau(g, x, y, pays, w, h) {
   g.rect(x, y, w, h, null, r, '#bbbbbb', 0.07)
 }
 function horloge(g, x, y, r) { g.circle(x, y, r, null, INK, 0.18); g.line(x, y, x, y - r * 0.65, INK, 0.18); g.line(x, y, x + r * 0.5, y + r * 0.15, INK, 0.18) }
-function espace(g, cx, y, t, f, pt, sp) { let w = 0; for (const ch of t) w += tw(ch, f, pt); w += sp * (t.length - 1); let x = cx - w / 2; for (const ch of t) { g.text(ch, x, y, f, pt, MUT, 'left'); x += tw(ch, f, pt) + sp } }
+function espace(g, cx, y, t, f, pt, sp, col = MUT) { let w = 0; for (const ch of t) w += tw(ch, f, pt); w += sp * (t.length - 1); let x = cx - w / 2; for (const ch of t) { g.text(ch, x, y, f, pt, col, 'left'); x += tw(ch, f, pt) + sp } }
 function coupe2(t, f, pt, maxw) {
   if (tw(t, f, pt) <= maxw) return [t]
   const w = t.split(' '); if (w.length < 2) return [t]
@@ -169,7 +174,8 @@ function placer(g, it, top, avail) {
 function ajuster(planFn, avail) { let k = 2.4, it; while (true) { it = planFn(k); const h = it.reduce((s, i) => s + i[2] * PT * (i[0] === 'info' ? 1.85 : 1.15), 0); if (h + Math.max(it.length - 1, 1) * 0.5 <= avail || k <= 0.75) return it; k -= 0.05 } }
 
 /* ---------- étiquette ---------- */
-export function dessiner(g, a: Article, bordure: boolean) {
+export function dessiner(g, a: Article, bordure: boolean, teinte?: number) {
+  if (estEnfant(a)) return dessinerEnfant(g, a, bordure, teinte ?? couleurEnfant(a))
   entete(g)
   const cig = estCigare(a)
   let marque = a.marque || '', nom = a.modele || ''; if (!nom) { nom = marque; marque = '' }
@@ -230,6 +236,45 @@ export function dessiner(g, a: Article, bordure: boolean) {
   if (bordure) g.rect(0, 0, W, H, null, 0, '#c8bfae', 0.1)
 }
 
+
+/* ---------- modèle rayon enfants ---------- */
+function mel(c, k, vers) { const h = x => parseInt(c.slice(x, x + 2), 16), t = vers === 'n' ? 0 : 255; return '#' + [1, 3, 5].map(i => Math.round(h(i) + (t - h(i)) * k).toString(16).padStart(2, '0')).join('') }
+function etoile(g, cx, cy, r, col) { const p = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; p.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]) } g.poly(p, col) }
+function dessinerEnfant(g, a: Article, bordure: boolean, teinte: number) {
+  const C = COULEURS_ENFANTS[teinte % COULEURS_ENFANTS.length], clair = mel(C, 0.45, 'b'), fonce = mel(C, 0.38, 'n')
+  g.rect(0, 0, W, H, C)
+  // confettis
+  ;[[3, 3.2, .9], [46.8, 2.6, .7], [44.5, 9.2, .5], [1.6, 13, .55], [48.4, 21, .6], [1.7, 30.5, .7], [47.6, 35.5, .9], [4.2, 37.6, .5], [41, 38.4, .45]]
+    .forEach(([x, y, r], i) => i % 3 === 1 ? etoile(g, x, y, r * 1.5, clair) : g.circle(x, y, r, clair))
+  // logo dans une pastille noire
+  const lh = 6.2, lw = lh * 1186 / 711
+  g.rect(2.6, 1.3, lw + 2, lh + 0.8, '#000000', 1.8); g.image(3.6, 1.7, lw, lh)
+  // prix dans une bulle blanche
+  const p = (Number(a.prix) || 0).toFixed(2).replace('.', ',') + ' €'
+  const pfs = fit(p, 'PopB', 13, 18.5, 8), pw = Math.max(tw(p, 'PopB', pfs) + 4, 14)
+  g.rect(W - 2.4 - pw, 1.2, pw, 7.4, '#ffffff', 3.7); g.text(p, W - 2.4 - pw / 2, 6.55, 'PopB', pfs, fonce, 'center')
+  // carte blanche
+  const cx0 = 2.2, cy0 = 10.2, cw = W - 4.4, boxTop = codebarre(g, a), ch = boxTop - 0.9 - cy0
+  g.rect(cx0, cy0, cw, ch, '#ffffff', 2.4)
+  g.rect(cx0 + cw / 2 - 6, cy0 - 0.01, 12, 0.9, fonce, 0.45)
+  let marque = a.marque || '', nom = a.modele || ''; if (!nom) { nom = marque; marque = '' }
+  const infos = (a.infos || []).filter(x => x && x.trim()), MW = cw - 3, top = cy0 + 1.2, avail = ch - 1.8
+  const it = ajuster(k => {
+    const L = []
+    if (marque) { const t = marque.toUpperCase(); L.push(['brand', 'PopB', fit(t, 'PopB', Math.min(5.2 * k, 7.2), MW, 4), t]) }
+    const sz = Math.min(8.8 * k, 15)
+    for (const t of (nom.split(' ').length > 1 ? coupe2(nom, 'PopB', sz, MW) : [nom])) L.push(['model', 'PopB', fit(t, 'PopB', sz, MW, 5.5), t])
+    for (const t of infos) L.push(['line', 'PopM', fit(t, 'PopM', Math.min(5.2 * k, 8), MW, 3.8), t])
+    return L
+  }, avail)
+  placer(g, it, top, avail).each(([kind, f, sz, t], cy) => {
+    const base = cy + sz * PT * 0.78
+    if (kind === 'brand') espace(g, W / 2, base, t, f, sz, 0.18 * sz / 5.4, fonce)
+    else g.text(t, W / 2, base, f, sz, kind === 'model' ? '#2a2140' : '#4a4060', 'center')
+  })
+  if (bordure) g.rect(0, 0, W, H, null, 0, '#c8bfae', 0.1)
+}
+
 export function etiquetteSVG(a: Article) {
   const g = svgBackend(LOGO_URL); dessiner(g, a, true)
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}">${g.out.join('')}</svg>`
@@ -273,7 +318,8 @@ export async function genererPDF(articles: Article[], format: 'a4' | 'rouleau'):
     catch (e) { console.warn('addFont', e) }
   }
   const g = pdfBackend(doc, res.logo, polOk)
-  const dessine = (a, bord) => { try { dessiner(g, a, bord) } catch (e) { throw new Error('étiquette N° ' + (a.num || a.code) + ' : ' + (e && e.message || e)) } }
+  let prec = -1, precCode = null
+  const dessine = (a, bord) => { let t; if (estEnfant(a)) { t = couleurEnfant(a); if (t === prec && a.code !== precCode) t = (t + 1) % COULEURS_ENFANTS.length; prec = t; precCode = a.code } try { dessiner(g, a, bord, t) } catch (e) { throw new Error('étiquette N° ' + (a.num || a.code) + ' : ' + (e && e.message || e)) } }
   if (format === 'a4') {
     const ox = (210 - 4 * W) / 2, oy = (297 - 7 * H) / 2
     articles.forEach((a, i) => { const k = i % 28; if (i && k === 0) doc.addPage(); g.setOrigin(ox + (k % 4) * W, oy + Math.floor(k / 4) * H); dessine(a, true) })

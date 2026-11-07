@@ -6,7 +6,7 @@ import {
   FORCES, FCOL, RAYON_CIGARES,
 } from '../lib/etiquettes/dessin'
 
-const RAYONS_DEFAUT = [RAYON_CIGARES, 'Accessoires cigares', 'Briquets', 'Pipes & tabac à pipe', 'Cigarette électronique', 'Cadeaux & divers']
+const RAYONS_DEFAUT = [RAYON_CIGARES, 'Accessoires cigares', 'Briquets', 'Pipes & tabac à pipe', 'Cigarette électronique', 'Cadeaux & divers', 'Enfants']
 const ORIGINES = ['', 'Cuba', 'Nicaragua', 'Rép. dominicaine', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil']
 const PAYS = ['', 'Cuba', 'Nicaragua', 'Rép. dominicaine', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil', 'Cameroun', 'États-Unis', 'Connecticut', 'Indonésie', 'Colombie', 'Paraguay']
 const SOURCES: Record<string, string> = { guide: 'Cigaroscope', habanos: 'Habanos officiel', web: 'avis vendeurs', gamme: 'même gamme', perso: 'saisie dans l\'appli' }
