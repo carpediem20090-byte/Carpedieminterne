@@ -5,11 +5,12 @@ import {
   type Article, etiquetteSVG, genererPDF, chargerPolices, codeOk, complet, manques, estCigare,
   FORCES, FCOL, RAYON_CIGARES,
 } from '../lib/etiquettes/dessin'
+import { lireCave, propositions, appliquer, NOMS_CHAMPS, type Proposition } from '../lib/etiquettes/cave'
 
 const RAYONS_DEFAUT = [RAYON_CIGARES, 'Accessoires cigares', 'Briquets', 'Pipes & tabac à pipe', 'Cigarette électronique', 'Cadeaux & divers', 'Enfants']
-const ORIGINES = ['', 'Cuba', 'Nicaragua', 'Rép. dominicaine', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil']
-const PAYS = ['', 'Cuba', 'Nicaragua', 'Rép. dominicaine', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil', 'Cameroun', 'États-Unis', 'Connecticut', 'Indonésie', 'Colombie', 'Paraguay']
-const SOURCES: Record<string, string> = { guide: 'Cigaroscope', habanos: 'Habanos officiel', web: 'avis vendeurs', gamme: 'même gamme', perso: 'saisie dans l\'appli' }
+const ORIGINES = ['', 'Cuba', 'Nicaragua', 'Rép. dominicaine', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil', 'Panama', 'États-Unis', 'Colombie', 'Paraguay', 'Philippines', 'Indonésie', 'Cameroun']
+const PAYS = ['', 'Cuba', 'Nicaragua', 'Rép. dom.', 'Honduras', 'Costa Rica', 'Pérou', 'Mexique', 'Équateur', 'Brésil', 'Cameroun', 'États-Unis', 'Connecticut', 'Indonésie', 'Colombie', 'Paraguay', 'Panama', 'Philippines']
+const SOURCES: Record<string, string> = { guide: 'Cigaroscope', habanos: 'Habanos officiel', web: 'avis vendeurs', gamme: 'même gamme', perso: 'saisie dans l\'appli', cave: 'appli cigares' }
 const CLE_SEL = 'cd_etiquettes_selection'
 
 const champ = 'w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane bg-white'
@@ -35,6 +36,7 @@ export default function Etiquettes() {
   const [apercu, setApercu] = useState(false)
   const [pdfEnCours, setPdfEnCours] = useState(false)
   const [, setPolicesPretes] = useState(false)
+  const [completer, setCompleter] = useState(false)
 
   async function charger() {
     setLoading(true); setErreur(null)
@@ -107,6 +109,10 @@ export default function Etiquettes() {
         </div>
         <button onClick={() => setEdition(vide(rayon || RAYON_CIGARES))} className="shrink-0 bg-havane text-white rounded-lg px-3 py-2 text-sm font-medium">+ Nouvel article</button>
       </div>
+
+      <button onClick={() => setCompleter(true)} className="w-full rounded-lg border border-laiton/40 bg-white px-3 py-2 text-sm text-havane text-left">
+        🔗 <b>Compléter depuis l'appli cigares</b> <span className="text-encre/60">— origine, force, temps, composition</span>
+      </button>
 
       <input value={recherche} onChange={e => { setRecherche(e.target.value); setAffiches(60) }} placeholder="Chercher : nom, n°, marque, code-barres…" className={champ} />
 
@@ -187,6 +193,14 @@ export default function Etiquettes() {
           onSupprimer={async a => { const e = await supprimer(a); if (!e) setEdition(null); return e }}
         />
       )}
+      {completer && (
+        <CompleterCave
+          articles={articles.filter(estCigare)}
+          onFermer={() => setCompleter(false)}
+          onFini={async () => { setCompleter(false); await charger() }}
+          modifiePar={profile?.id ?? null}
+        />
+      )}
       {apercu && (
         <Modale onFermer={() => setApercu(false)} titre={`Aperçu (${nbEtq} étiquette${nbEtq > 1 ? 's' : ''})`}>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -233,11 +247,27 @@ function Fiche({ article, rayons, estPatron, codesExistants, onFermer, onEnregis
     prix: parseFloat(prixTxt.replace(',', '.')) || 0,
     compo: cig && (compo[0] || compo[1] || compo[2].trim()) ? [compo[0] || '', compo[1] || '', compo[2].trim()] : null,
     infos: cig ? null : (a.infos || []).map(x => x.trim()).filter(Boolean),
-    force_source: a.force !== article.force ? (a.force ? 'perso' : null) : article.force_source,
+    force_source: a.force !== article.force ? (a.force ? (a.force_source && a.force_source !== article.force_source ? a.force_source : 'perso') : null) : article.force_source,
     num: a.num?.trim() || null, marque: a.marque?.trim() || null, modele: a.modele?.trim() || null,
     origine: cig ? a.origine || null : null, temps: cig ? a.temps || null : null, force: cig ? a.force || null : null,
   }
   const codeErr = !final.code ? 'Obligatoire' : codeOk(final.code) ? '' : (final.code.length === 12 || final.code.length === 13 ? 'Chiffre de contrôle faux : vérifie le code' : 'Il faut 12 ou 13 chiffres')
+
+  const [caveMsg, setCaveMsg] = useState<string | null>(null)
+  async function remplirDepuisCave() {
+    if (codeErr) return setCaveMsg('Tape d\'abord un code-barres valide.')
+    setCaveMsg('Recherche…')
+    try {
+      const cave = await lireCave([final.code])
+      if (!cave.size) return setCaveMsg('Ce code-barres n\'est pas relié à une fiche de l\'appli cigares.')
+      const vides = propositions([final], cave).filter(p => p.actuel === null)
+      if (!vides.length) return setCaveMsg('Rien à ajouter : les cases remplissables sont déjà remplies.')
+      const n = appliquer(final, vides)
+      setA(x => ({ ...x, origine: n.origine, force: n.force, force_source: n.force_source, temps: n.temps }))
+      if (n.compo) setCompo([n.compo[0] || '', n.compo[1] || '', n.compo[2] || ''])
+      setCaveMsg('Rempli : ' + vides.map(p => NOMS_CHAMPS[p.champ].toLowerCase()).join(', ') + '. Vérifie puis enregistre.')
+    } catch (e) { setCaveMsg((e as Error).message) }
+  }
 
   async function valider() {
     if (codeErr) return setMsg('Le code-barres n\'est pas valide.')
@@ -262,9 +292,13 @@ function Fiche({ article, rayons, estPatron, codesExistants, onFermer, onEnregis
         <L t={cig ? 'Modèle' : 'Nom de l\'article'}><input value={a.modele || ''} onChange={e => set('modele', e.target.value)} className={champ} placeholder={cig ? 'ex. Siglo II' : 'ex. Ligne 2'} /></L>
         <L t="Prix de vente (€)"><input value={prixTxt} onChange={e => setPrixTxt(e.target.value)} inputMode="decimal" className={champ} /></L>
         {cig ? (<>
+          <div className="sm:col-span-2">
+            <button type="button" onClick={remplirDepuisCave} className="rounded-lg border border-laiton/40 bg-white px-3 py-2 text-sm text-havane">🔗 Remplir les cases vides depuis l'appli cigares</button>
+            {caveMsg && <p className="text-xs text-encre/60 mt-1">{caveMsg}</p>}
+          </div>
           <L t="Origine (pays de fabrication)"><select value={a.origine || ''} onChange={e => set('origine', e.target.value)} className={champ}>{ORIGINES.map(o => <option key={o} value={o}>{o || '—'}</option>)}</select></L>
           <L t="Force" aide={article.force && article.force_source ? 'Source : ' + (SOURCES[article.force_source] || article.force_source) : undefined}>
-            <select value={a.force || 0} onChange={e => set('force', +e.target.value || null)} className={champ}>{FORCES.map((l, i) => <option key={i} value={i}>{l || '— non indiquée'}</option>)}</select>
+            <select value={a.force || 0} onChange={e => setA(x => ({ ...x, force: +e.target.value || null, force_source: 'perso' }))} className={champ}>{FORCES.map((l, i) => <option key={i} value={i}>{l || '— non indiquée'}</option>)}</select>
           </L>
           <L t="Temps de fumage (min, estimation)"><input value={a.temps || ''} onChange={e => set('temps', parseInt(e.target.value) || null)} inputMode="numeric" className={champ} placeholder="ex. 45" /></L>
           <L t="Cape"><select value={compo[0]} onChange={e => setCompo(c => [e.target.value, c[1], c[2]])} className={champ}>{PAYS.map(o => <option key={o} value={o}>{o || '—'}</option>)}</select></L>
@@ -302,5 +336,94 @@ function L({ t, children, err, aide, pleine }: { t: string; children: React.Reac
       {children}
       {err ? <p className="text-xs text-corail mt-1">{err}</p> : aide ? <p className="text-xs text-encre/50 mt-1">{aide}</p> : null}
     </div>
+  )
+}
+
+const affiche = (p: Proposition, v: string | number | null) => v === null || v === '' ? 'vide' : p.champ === 'force' ? FORCES[Number(v)] : p.champ === 'temps' ? `≈ ${v} min` : String(v)
+
+function CompleterCave({ articles, onFermer, onFini, modifiePar }: {
+  articles: Article[]; onFermer: () => void; onFini: () => Promise<void>; modifiePar: string | null
+}) {
+  const [props, setProps] = useState<Proposition[] | null>(null)
+  const [coches, setCoches] = useState<Set<string>>(new Set())
+  const [erreur, setErreur] = useState<string | null>(null)
+  const [envoi, setEnvoi] = useState<string | null>(null)
+  const parCode = useMemo(() => new Map(articles.map(a => [a.code, a])), [articles])
+  const cle = (p: Proposition) => p.code + '|' + p.champ
+
+  useEffect(() => {
+    lireCave(articles.map(a => a.code))
+      .then(cave => { const p = propositions(articles, cave); setProps(p); setCoches(new Set(p.filter(x => x.defaut).map(cle))) })
+      .catch(e => setErreur((e as Error).message))
+  }, [articles])
+
+  const vides = (props || []).filter(p => p.actuel === null)
+  const diffs = (props || []).filter(p => p.actuel !== null)
+  const basculer = (k: string) => setCoches(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n })
+  const tout = (liste: Proposition[], oui: boolean) => setCoches(s => { const n = new Set(s); liste.forEach(p => oui ? n.add(cle(p)) : n.delete(cle(p))); return n })
+
+  async function valider() {
+    const retenues = (props || []).filter(p => coches.has(cle(p)))
+    const parArticle = new Map<string, Proposition[]>()
+    retenues.forEach(p => parArticle.set(p.code, [...(parArticle.get(p.code) || []), p]))
+    let fait = 0
+    for (const [code, choix] of parArticle) {
+      const a = parCode.get(code); if (!a?.id) continue
+      const n = appliquer(a, choix)
+      setEnvoi(`Enregistrement… ${++fait}/${parArticle.size}`)
+      const { error } = await supabase.from('etiquettes_articles').update({
+        origine: n.origine, force: n.force, force_source: n.force_source, temps: n.temps, compo: n.compo,
+        modifie_par: modifiePar, modifie_le: new Date().toISOString(),
+      }).eq('id', a.id)
+      if (error) { setErreur('Arrêté sur ' + (a.modele || a.code) + ' : ' + error.message); setEnvoi(null); return }
+    }
+    setEnvoi(null); await onFini()
+  }
+
+  const Ligne = ({ p }: { p: Proposition }) => {
+    const a = parCode.get(p.code)
+    return (
+      <label className="flex items-start gap-2 py-2 border-b border-gray-100 text-sm">
+        <input type="checkbox" checked={coches.has(cle(p))} onChange={() => basculer(cle(p))} className="w-5 h-5 mt-0.5 accent-havane shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{a?.num ? <b className="text-laiton">N° {a.num} </b> : null}{a?.marque} · {a?.modele}</span>
+          <span className="text-encre/70">{NOMS_CHAMPS[p.champ]} : {p.actuel !== null ? <><s className="text-encre/40">{affiche(p, p.actuel)}</s> → </> : null}<b>{affiche(p, p.cave)}</b>{p.habanos ? <span className="text-xs text-encre/50"> (Habanos officiel)</span> : null}</span>
+        </span>
+      </label>
+    )
+  }
+
+  return (
+    <Modale titre="Compléter depuis l'appli cigares" onFermer={onFermer}>
+      {erreur && <p className="text-sm text-corail mb-3">{erreur}</p>}
+      {!props && !erreur && <p className="text-sm text-encre/60">Lecture de l'appli cigares…</p>}
+      {props && props.length === 0 && <p className="text-sm text-encre/60">Rien à compléter : les étiquettes sont déjà à jour par rapport à l'appli cigares.</p>}
+      {props && props.length > 0 && (<>
+        <p className="text-sm text-encre/70 mb-3">Le lien se fait par le code-barres. Le n° et le prix ne sont jamais touchés. Rien n'est enregistré avant « Appliquer ».</p>
+        {vides.length > 0 && (
+          <section className="mb-4">
+            <div className="flex items-baseline justify-between">
+              <h3 className="font-semibold text-havane">Cases vides à remplir ({vides.length})</h3>
+              <button onClick={() => tout(vides, !vides.every(p => coches.has(cle(p))))} className="text-xs underline text-havane">tout cocher / décocher</button>
+            </div>
+            <div className="bg-white rounded-xl px-3 mt-2">{vides.map(p => <Ligne key={cle(p)} p={p} />)}</div>
+          </section>
+        )}
+        {diffs.length > 0 && (
+          <section className="mb-4">
+            <div className="flex items-baseline justify-between">
+              <h3 className="font-semibold text-havane">Différences ({diffs.length})</h3>
+              <button onClick={() => tout(diffs, !diffs.every(p => coches.has(cle(p))))} className="text-xs underline text-havane">tout cocher / décocher</button>
+            </div>
+            <p className="text-xs text-encre/60 mt-1">L'étiquette garde sa valeur sauf si tu coches. La force des cubains est cochée d'office : l'appli cigares suit le classement officiel Habanos.</p>
+            <div className="bg-white rounded-xl px-3 mt-2">{diffs.map(p => <Ligne key={cle(p)} p={p} />)}</div>
+          </section>
+        )}
+        <div className="sticky bottom-0 bg-creme pt-2 flex gap-2 justify-end">
+          <button onClick={onFermer} className="rounded-lg border border-gray-300 px-4 py-2 text-sm">Annuler</button>
+          <button onClick={valider} disabled={!!envoi || coches.size === 0} className="bg-havane text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">{envoi || `Appliquer (${coches.size})`}</button>
+        </div>
+      </>)}
+    </Modale>
   )
 }

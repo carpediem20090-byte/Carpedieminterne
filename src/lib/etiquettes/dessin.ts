@@ -25,8 +25,9 @@ export const W = 50
 export const H = 40
 const PT = 0.3528
 const INK = '#000000', MUT = '#2e2318', GOLD = '#8a6212', DARK = '#2b1a10'
-export const FORCES = ['', 'LÉGER', 'MOYEN', 'MOYEN-CORSÉ', 'CORSÉ']
-export const FCOL = { 1: '#2f6b3a', 2: '#1f4e8c', 3: '#b4471a', 4: '#8c1010' }
+// Force sur 5 niveaux, la même échelle que le classement officiel Habanos et que l'appli cigares.
+export const FORCES = ['', 'LÉGER', 'LÉGER À MOYEN', 'MOYEN', 'MOYEN À CORSÉ', 'CORSÉ']
+export const FCOL = { 1: '#2f6b3a', 2: '#2a6f73', 3: '#1f4e8c', 4: '#b4471a', 5: '#8c1010' }
 export const RAYON_CIGARES = 'Cigares'
 export const LOGO_URL = '/etiquettes/logo.jpg'
 export const RAYON_ENFANTS = 'Enfants'
@@ -183,7 +184,7 @@ export function dessiner(g, a: Article, bordure: boolean, teinte?: number) {
   if (cig) {
     if (a.num) pastille(g, 'N° ' + a.num)
     if (a.force) {
-      const lab = FORCES[a.force], mx = 21.8, fs = a.force === 3 ? 5.3 : 5.9, w = tw(lab, 'PopB', fs)
+      const lab = FORCES[a.force], mx = 21.8, fs = fit(lab, 'PopB', 5.9, 13.4, 3.6), w = tw(lab, 'PopB', fs)
       g.text('FORCE', mx, 11.65, 'PopM', 3.4, MUT, 'center')
       g.rect(mx - w / 2 - 1.1, 11.9, w + 2.2, 2.75, FCOL[a.force], 1.35)
       g.text(lab, mx, 13.95, 'PopB', fs, '#ffffff', 'center'); gauche = 29

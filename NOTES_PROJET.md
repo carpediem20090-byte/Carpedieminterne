@@ -33,17 +33,24 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 ## Étiquettes prix (ajouté le 2 nov. 2026)
 
 - Page `/etiquettes` (menu « Plus » → « 🏷️ Étiquettes prix »). Code : `src/pages/Etiquettes.tsx` + moteur de dessin `src/lib/etiquettes/dessin.ts`.
-- Table `etiquettes_articles` (migration 0027) : code-barres unique (EAN-13 / UPC-A), n°, rayon, marque, modèle, prix, et pour les cigares origine, temps, force (1 léger · 2 moyen · 3 moyen-corsé · 4 corsé), source de la force, composition [cape, sous-cape, tripe] ; pour les autres rayons 3 lignes d'info libres.
+- Table `etiquettes_articles` (migration 0027) : code-barres unique (EAN-13 / UPC-A), n°, rayon, marque, modèle, prix, et pour les cigares origine, temps, force sur 5 niveaux depuis la migration 0029 (1 léger · 2 léger à moyen · 3 moyen · 4 moyen à corsé · 5 corsé, comme le classement Habanos), source de la force, composition [cape, sous-cape, tripe] ; pour les autres rayons 3 lignes d'info libres.
 - Droits : toute l'équipe lit / crée / modifie ; **seuls les patrons suppriment**.
 - 612 cigares importés (migration 0028), préparés avec Claude à partir des listes de stock, du Cigaroscope 2026 et du classement officiel Habanos.
 - Deux modèles d'étiquette 50 × 40 mm : **cigare** (rayon « Cigares ») et **article** (tous les autres rayons). PDF A4 (28 par page) ou rouleau 50 × 40.
 - Polices Poppins et logo dans `public/etiquettes/`.
 
+### Pont avec l'appli cigares (« la cave »)
+
+- Fichier `src/lib/etiquettes/cave.ts`. Lecture seule de la fonction `label_info(codes)` de l'appli cigares (projet Supabase `ralnsnfdtkmqtvfubzml`, clé publique), lien par **code-barres**.
+- Bouton « Compléter depuis l'appli cigares » (en masse) et « Remplir les cases vides » dans la fiche d'un article.
+- Ne touche jamais au n°, au prix, à la marque ni au modèle. Cases vides cochées d'office ; différences décochées, sauf la force des cubains (classement Habanos dans l'appli cigares).
+- Le temps de l'étiquette (estimation) n'est jamais contesté, seulement rempli s'il est vide.
+
 ### Règles à respecter pour les étiquettes
 
 - **Ne rien mettre quand l'info n'est pas sûre** (règle du patron).
 - Temps de fumage = toujours une **estimation** d'après le format, affichée « ≈ 45 min ».
-- Sources de force (`force_source`) : `guide` (Cigaroscope, même cigare même format), `habanos` (classement officiel par marque/ligne), `web` (avis majoritaire de vendeurs, moins sûr), `gamme` (étendu depuis un autre format de la même gamme, moins sûr), `perso` (saisi dans l'appli).
+- Sources de force (`force_source`) : `guide` (Cigaroscope, même cigare même format), `habanos` (classement officiel par marque/ligne), `web` (avis majoritaire de vendeurs, moins sûr), `gamme` (étendu depuis un autre format de la même gamme, moins sûr), `perso` (saisi dans l'appli), `cave` (repris de l'appli cigares).
 - N° 121 (Oliva World Cup) et N° 133 (La Flor Dominicana Reserva Toro) : code-barres lu sur photo floue → `a_verifier = true`, à scanner en caisse.
 
 ## Points de vigilance connus
