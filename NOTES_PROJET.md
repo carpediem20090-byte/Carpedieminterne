@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 2 novembre 2026.
+> Dernière mise à jour : 10 novembre 2026.
 
 ## Où sont les choses
 
@@ -38,6 +38,10 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - 612 cigares importés (migration 0028), préparés avec Claude à partir des listes de stock, du Cigaroscope 2026 et du classement officiel Habanos.
 - Deux modèles d'étiquette 50 × 40 mm : **cigare** (rayon « Cigares ») et **article** (tous les autres rayons). PDF A4 (28 par page) ou rouleau 50 × 40.
 - Polices Poppins et logo dans `public/etiquettes/`.
+- **Rayon « Enfants »** (7 nov.) : modèle coloré, 8 couleurs vives (une par article, jamais deux identiques à la suite sur le PDF), logo + prix en bulle, carte blanche, code-barres sur fond blanc. Déjà saisis : 13 Squishy Voom, 6 jeux Legami.
+- Composition partielle possible (ex. cape seule) : affichée « Cape : … », l'article reste dans « Incomplets ».
+- Le PDF attend le chargement des polices avant de mesurer les textes (sinon les noms débordaient) ; en cas d'échec il affiche l'erreur précise et se rabat sur une police standard.
+- Cigare ajouté le 8 nov. : N° 312 Cumpay Volcán Maduro (absent des listes d'origine). D'autres cigares de la cave manquent peut-être : comparer avec un export caisse.
 
 ### Pont avec l'appli cigares (« la cave »)
 
@@ -65,10 +69,16 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Relier les étiquettes aux emplacements produits ou aux réceptions fournisseurs.
 - Factures : reconnaissance automatique du contenu (prévu, pas fait).
 
+## Hors appli (fichiers faits par Claude)
+
+- Bandeaux de tiroirs (19 × 3 cm, logo + texte, A4) : ECG ×3, Cartes Panini ×2, Wpuff, Veev • bluPod / OMP Vuse, Humidificateurs / Tabac à pipe, X-Bar, Elf Bar.
+- Export `Cigares_Carpe_Diem.csv` (8 nov.) : 613 cigares + stock des feuilles caisse du 31 oct. + fournisseur.
+
 ## Façon de travailler
 
 - Avant toute modification importante : expliquer ce qui change, pourquoi, quelles données sont touchées, et le risque pour l'existant.
 - Les nouveautés passent d'abord par une **branche** (lien de test Vercel), puis sont fusionnées dans `main` après validation.
+- **Une seule conversation à la fois** sur l'appli interne. Toute conversation commence par récupérer la dernière version du code (`git pull`) et relire cette fiche, et la met à jour en fin de séance.
 
 ## Enrichissement cigares (02/11/2026)
 - Origines ajoutées pour 54 cigares (sans origine : 102 → 48), via Cigaroscope + fiches fabricants/vendeurs.
