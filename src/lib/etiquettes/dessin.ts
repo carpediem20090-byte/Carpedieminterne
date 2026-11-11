@@ -31,7 +31,10 @@ export const FCOL = { 1: '#2f6b3a', 2: '#2a6f73', 3: '#1f4e8c', 4: '#b4471a', 5:
 export const RAYON_CIGARES = 'Cigares'
 export const LOGO_URL = '/etiquettes/logo.jpg'
 export const RAYON_ENFANTS = 'Enfants'
-export function estEnfant(a: Article) { return a.rayon === RAYON_ENFANTS }
+/* modèle coloré : toujours pour le rayon Enfants ; pour les autres articles (hors cigares) si l'option est activée */
+let articlesColores = false
+export function setArticlesColores(v: boolean) { articlesColores = !!v }
+export function estEnfant(a: Article) { return a.rayon === RAYON_ENFANTS || (articlesColores && !estCigare(a)) }
 /* couleurs vives du rayon enfants : une par article (stable), décalée à l'impression si deux voisines se suivent */
 export const COULEURS_ENFANTS = ['#ff4f6d', '#ff8a2a', '#f7b500', '#5cbf2a', '#1a9be0', '#7b4fd6', '#ff5fb2', '#00b8b0']
 export function couleurEnfant(a: Article) { let h = 2166136261; for (const c of String(a.code || a.modele || '')) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619) } h ^= h >>> 15; h = Math.imul(h, 2246822507); h ^= h >>> 13; return (h >>> 0) % COULEURS_ENFANTS.length }

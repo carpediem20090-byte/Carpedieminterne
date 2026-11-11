@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 10 novembre 2026.
+> Dernière mise à jour : 11 novembre 2026.
 
 ## Où sont les choses
 
@@ -39,6 +39,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Deux modèles d'étiquette 50 × 40 mm : **cigare** (rayon « Cigares ») et **article** (tous les autres rayons). PDF A4 (28 par page) ou rouleau 50 × 40.
 - Polices Poppins et logo dans `public/etiquettes/`.
 - **Rayon « Enfants »** (7 nov.) : modèle coloré, 8 couleurs vives (une par article, jamais deux identiques à la suite sur le PDF), logo + prix en bulle, carte blanche, code-barres sur fond blanc. Déjà saisis : 13 Squishy Voom, 6 jeux Legami.
+- Option « Articles (hors cigares) : Classique / 🎨 Coloré » dans la barre d'impression (11 nov.) : applique le modèle coloré à tous les articles non-cigares cochés. Choix mémorisé sur l'appareil ; par défaut Classique. Les cigares gardent toujours leur modèle.
 - Composition partielle possible (ex. cape seule) : affichée « Cape : … », l'article reste dans « Incomplets ».
 - Le PDF attend le chargement des polices avant de mesurer les textes (sinon les noms débordaient) ; en cas d'échec il affiche l'erreur précise et se rabat sur une police standard.
 - Cigare ajouté le 8 nov. : N° 312 Cumpay Volcán Maduro (absent des listes d'origine). D'autres cigares de la cave manquent peut-être : comparer avec un export caisse.

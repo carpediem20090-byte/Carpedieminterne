@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  type Article, etiquetteSVG, genererPDF, chargerPolices, codeOk, complet, manques, estCigare,
+  type Article, etiquetteSVG, genererPDF, setArticlesColores, chargerPolices, codeOk, complet, manques, estCigare,
   FORCES, FCOL, RAYON_CIGARES,
 } from '../lib/etiquettes/dessin'
 import { lireCave, propositions, appliquer, NOMS_CHAMPS, type Proposition } from '../lib/etiquettes/cave'
@@ -32,6 +32,9 @@ export default function Etiquettes() {
   const [affiches, setAffiches] = useState(60)
   const [sel, setSel] = useState<Record<string, number>>(() => { try { return JSON.parse(localStorage.getItem(CLE_SEL) || '{}') } catch { return {} } })
   const [format, setFormat] = useState<'a4' | 'rouleau'>('a4')
+  const [colore, setColore] = useState<boolean>(() => { try { return localStorage.getItem('cd_etiquettes_colore') === '1' } catch { return false } })
+  setArticlesColores(colore)
+  useEffect(() => { try { localStorage.setItem('cd_etiquettes_colore', colore ? '1' : '0') } catch { /* rien */ } }, [colore])
   const [edition, setEdition] = useState<Article | null>(null)
   const [apercu, setApercu] = useState(false)
   const [pdfEnCours, setPdfEnCours] = useState(false)
@@ -175,6 +178,15 @@ export default function Etiquettes() {
               <button onClick={() => setSel({})} className="underline text-encre/60">Tout décocher</button>
             </span>
           </div>
+          {aImprimer().some(a => !estCigare(a) && a.rayon !== 'Enfants') && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-encre/60">Articles (hors cigares) :</span>
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+                <button onClick={() => setColore(false)} className={`px-3 py-1.5 ${!colore ? 'bg-havane text-white' : 'bg-white'}`}>Classique</button>
+                <button onClick={() => setColore(true)} className={`px-3 py-1.5 ${colore ? 'bg-havane text-white' : 'bg-white'}`}>🎨 Coloré</button>
+              </div>
+            </div>
+          )}
           <div className="flex gap-2">
             <select value={format} onChange={e => setFormat(e.target.value as 'a4' | 'rouleau')} className="rounded-lg border border-gray-300 px-2 py-2 text-sm bg-white">
               <option value="a4">A4 (28/page)</option>
