@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 11 novembre 2026.
+> Dernière mise à jour : 12 novembre 2026.
 
 ## Où sont les choses
 
@@ -69,6 +69,15 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Éventuellement : modèle d'étiquette spécifique par rayon (ex. e-liquides avec taux de nicotine).
 - Relier les étiquettes aux emplacements produits ou aux réceptions fournisseurs.
 - Factures : reconnaissance automatique du contenu (prévu, pas fait).
+
+## Ajout de nouveaux cigares (règle depuis le 12 nov.)
+
+- Le patron envoie une photo de la fiche ou de la liste produits de la caisse (code-barres, désignation avec n°, prix).
+- Claude ajoute le cigare **dans les deux applis** :
+  1. appli interne : table `etiquettes_articles` (projet `esfykhlnpvtkbrvthzep`) ;
+  2. appli cigares (catalogue clients, projet `ralnsnfdtkmqtvfubzml`) : chercher d'abord la fiche existante dans `cigars` (≈ 3 300 fiches, souvent archivées), sinon la créer ; relier le code-barres dans `cigar_barcodes` (barcode, cigar_id, num) ; mettre prix, `in_stock = true`, `is_archived = false`, `is_catalog_visible = true`. Ne jamais laisser « à vérifier » visible des clients (mettre vide).
+- Toujours la règle « pas sûr = vide ». Ne toucher à rien d'autre dans l'appli cigares.
+- Fait le 12 nov. : Esteli Club N°1 (463), N°5 (464), N°6 (466) ; n° 312 ajouté au code-barres du Cumpay Volcán Maduro.
 
 ## Hors appli (fichiers faits par Claude)
 
