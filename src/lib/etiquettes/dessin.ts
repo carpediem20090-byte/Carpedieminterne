@@ -52,7 +52,7 @@ const LCODE = ['0001101','0011001','0010011','0111101','0100011','0110001','0101
 const RCODE = LCODE.map(c => c.split('').map(b => b === '0' ? '1' : '0').join(''))
 const GCODE = RCODE.map(c => c.split('').reverse().join(''))
 const PAR = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL']
-function eanBits(s) {
+export function eanBits(s: string): string {
   const p = PAR[+s[0]]; let b = '101'
   for (let i = 1; i <= 6; i++) b += (p[i - 1] === 'L' ? LCODE : GCODE)[+s[i]]
   b += '01010'; for (let i = 7; i <= 12; i++) b += RCODE[+s[i]]; return b + '101'

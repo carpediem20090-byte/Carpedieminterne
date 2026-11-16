@@ -58,6 +58,14 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Sources de force (`force_source`) : `guide` (Cigaroscope, même cigare même format), `habanos` (classement officiel par marque/ligne), `web` (avis majoritaire de vendeurs, moins sûr), `gamme` (étendu depuis un autre format de la même gamme, moins sûr), `perso` (saisi dans l'appli), `cave` (repris de l'appli cigares).
 - N° 121 (Oliva World Cup) et N° 133 (La Flor Dominicana Reserva Toro) : code-barres lu sur photo floue → `a_verifier = true`, à scanner en caisse.
 
+## Panier cave (16 nov. 2026, branche `panier-cave`)
+
+- Page `/panier` (menu « Plus » → « 🛒 Panier cave »). Code : `src/pages/PanierCave.tsx`.
+- Scan à l'appareil photo (librairie `@zxing/browser`, EAN-13 / UPC-A / EAN-8) des étiquettes prix ou des boîtes ; chaque lecture ajoute 1 article. Recherche manuelle par n° / marque / modèle en secours.
+- Articles et prix lus dans `etiquettes_articles` (lecture seule). Plusieurs paniers en parallèle (un par client), **gardés sur le téléphone uniquement** (localStorage `cd_paniers_cave`), aucune table créée.
+- « Passer en caisse » : affiche un code-barres à la fois, en grand, avec la quantité ; la caissière le scanne à la douchette Bimedia. Écran maintenu allumé si possible.
+- À vérifier : que la douchette Bimedia lise un code-barres sur écran. Question posée à Bimedia : possibilité d'envoyer un ticket en attente par API (version idéale, sans scan en caisse).
+
 ## Points de vigilance connus
 
 - Avertissements de sécurité Supabase **antérieurs** aux étiquettes : fonctions `SECURITY DEFINER` appelables par API (`handle_new_user`, `is_patron`, `marquer_commande_recue`, `notifier_push_trigger`), search_path non fixé sur `notifier_push_trigger`, protection mots de passe compromis désactivée. À traiter un jour (non urgent, rien d'exposé de grave).

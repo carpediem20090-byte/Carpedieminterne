@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { activerNotifications, desactiverNotifications, notificationsSupportees } from '../lib/push'
 
 const modules = [
+  { to: '/panier', label: 'Panier cave (scan cigares)', icon: '🛒', patron: false },
   { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: false },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏭', patron: false },
   { to: '/factures', label: 'Factures', icon: '🧾', patron: true },

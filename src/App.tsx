@@ -19,6 +19,7 @@ import Actus from './pages/Actus'
 import Equipe from './pages/Equipe'
 import Plus from './pages/Plus'
 import Etiquettes from './pages/Etiquettes'
+import PanierCave from './pages/PanierCave'
 
 function RoutePatron({ children }: { children: ReactNode }) {
   const { estPatron } = useAuth()
@@ -73,6 +74,7 @@ function PrivateArea() {
           }
         />
         <Route path="/etiquettes" element={<Etiquettes />} />
+        <Route path="/panier" element={<PanierCave />} />
         <Route path="/plus" element={<Plus />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
