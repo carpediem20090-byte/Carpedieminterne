@@ -16,6 +16,17 @@ const CLE = 'cd_paniers_cave'
 const eur = (p: number) => (Number(p) || 0).toFixed(2).replace('.', ',') + ' €'
 const sansAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 const norm = (c: string) => { c = String(c || '').replace(/\D/g, ''); return c.length === 12 ? '0' + c : c }
+// UPC-E (8 chiffres, petits codes « compressés ») → UPC-A (12 chiffres)
+function upcEversA(e: string): string | null {
+  if (!/^[01]\d{7}$/.test(e)) return null
+  const [ns, d, ck] = [e[0], e.slice(1, 7), e[7]], x = d[5]
+  const corps = x <= '2' ? d.slice(0, 2) + x + '0000' + d.slice(2, 5)
+    : x === '3' ? d.slice(0, 3) + '00000' + d.slice(3, 5)
+    : x === '4' ? d.slice(0, 4) + '00000' + d[4]
+    : d.slice(0, 5) + '0000' + x
+  return ns + corps + ck
+}
+const sansZeros = (c: string) => c.replace(/^0+/, '')
 const nomProduit = (p?: Produit) => p ? [p.marque, p.modele].filter(Boolean).join(' ') || 'Article' : 'Article inconnu'
 const nouveau = (n: number): Panier => ({ id: crypto.randomUUID(), nom: 'Client ' + n, lignes: [], cree: Date.now() })
 
@@ -55,7 +66,7 @@ export default function PanierCave() {
       for (let de = 0; ; de += 1000) {
         const { data, error } = await supabase.from('etiquettes_articles').select('code,num,rayon,marque,modele,prix,a_verifier').range(de, de + 999)
         if (error) { setErreur('Impossible de charger les articles : ' + error.message); break }
-        for (const p of (data as Produit[]) ?? []) m.set(norm(p.code), p)
+        for (const p of (data as Produit[]) ?? []) { m.set(norm(p.code), p); m.set('~' + sansZeros(norm(p.code)), p) }
         if (!data || data.length < 1000) break
       }
       setProduits(m); setLoading(false)
@@ -69,9 +80,19 @@ export default function PanierCave() {
   function majPanier(f: (p: Panier) => Panier) { setPaniers(ps => ps.map(p => p.id === actif.id ? f(p) : p)) }
   function flash(texte: string, ok: boolean) { setMessage({ texte, ok }); window.setTimeout(() => setMessage(m => m?.texte === texte ? null : m), 2500) }
 
-  function ajouter(codeBrut: string) {
-    const code = norm(codeBrut), p = produits.get(code)
-    if (!p) { flash('Code inconnu : ' + codeBrut + ' (pas dans les étiquettes)', false); return false }
+  // Retrouve l'article quel que soit le type de code-barres lu (EAN, UPC-E, Code 128 des anciennes étiquettes…)
+  function trouver(codeBrut: string): Produit | undefined {
+    const brut = String(codeBrut || '').trim(), chiffres = brut.replace(/\D/g, '')
+    const essais = [norm(chiffres)]
+    const a = upcEversA(chiffres); if (a) essais.push(norm(a))
+    for (const c of essais) { const p = produits.get(c); if (p) return p }
+    for (const c of essais) { const p = produits.get('~' + sansZeros(c)); if (p) return p }
+    return undefined
+  }
+
+  function ajouter(codeBrut: string, format?: string) {
+    const p = trouver(codeBrut), code = p ? norm(p.code) : ''
+    if (!p) { flash('Code inconnu : ' + codeBrut + (format ? ' [' + format + ']' : '') + ' (pas dans les étiquettes)', false); return false }
     majPanier(pa => {
       const ex = pa.lignes.find(l => l.code === code)
       return { ...pa, lignes: ex ? pa.lignes.map(l => l.code === code ? { ...l, qte: l.qte + 1 } : l) : [...pa.lignes, { code, qte: 1 }] }
@@ -242,8 +263,10 @@ function ChampQte({ valeur, onChange }: { valeur: number; onChange: (q: number) 
    1. Détecteur intégré au téléphone (BarcodeDetector, Android/Chrome) : le plus rapide et le plus fiable.
    2. Sinon (iPhone…) : librairie zxing en mode « essayer plus fort ».
    Caméra arrière en haute définition, mise au point continue, lampe si disponible (cave sombre). */
-type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string }[]> }
-function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: string) => boolean; message: { texte: string; ok: boolean } | null }) {
+type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string; format?: string }[]> }
+// Tous les types de codes-barres courants : les anciennes étiquettes du magasin ne sont pas forcément en EAN.
+const FORMATS_NATIFS = ['ean_13', 'upc_a', 'ean_8', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar']
+function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null }) {
   const video = useRef<HTMLVideoElement>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [piste, setPiste] = useState<MediaStreamTrack | null>(null)
@@ -252,12 +275,12 @@ function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: 
   const dernier = useRef<{ code: string; t: number }>({ code: '', t: 0 })
   const cb = useRef(onCode); cb.current = onCode
 
-  function lu(code: string) {
+  function lu(code: string, format?: string) {
     const now = Date.now()
     // même code vu en continu : on ne le recompte qu'après l'avoir quitté 1,5 s
     if (code === dernier.current.code && now - dernier.current.t < 1500) { dernier.current.t = now; return }
     dernier.current = { code, t: now }
-    if (cb.current(code)) bip()
+    if (cb.current(code, format)) bip()
   }
 
   useEffect(() => {
@@ -277,22 +300,22 @@ function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: 
         const v = video.current!; v.srcObject = flux; await v.play().catch(() => { /* rien */ })
 
         const BD = (window as unknown as { BarcodeDetector?: { new (o: { formats: string[] }): Detecteur; getSupportedFormats: () => Promise<string[]> } }).BarcodeDetector
-        const formats = BD ? (await BD.getSupportedFormats().catch(() => [] as string[])).filter(f => ['ean_13', 'upc_a', 'ean_8'].includes(f)) : []
+        const formats = BD ? (await BD.getSupportedFormats().catch(() => [] as string[])).filter(f => FORMATS_NATIFS.includes(f)) : []
         if (BD && formats.includes('ean_13')) {
           const det = new BD({ formats })
           const boucle = async () => {
             if (fini) return
-            try { if (v.readyState >= 2) for (const r of await det.detect(v)) lu(r.rawValue) } catch { /* rien */ }
+            try { if (v.readyState >= 2) for (const r of await det.detect(v)) lu(r.rawValue, (r as { format?: string }).format) } catch { /* rien */ }
             minuterie = window.setTimeout(boucle, 80)
           }
           boucle()
         } else {
           const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([import('@zxing/browser'), import('@zxing/library')])
           const hints = new Map()
-          hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8])
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8, BarcodeFormat.UPC_E, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.CODE_93, BarcodeFormat.ITF, BarcodeFormat.CODABAR])
           hints.set(DecodeHintType.TRY_HARDER, true)
           const lecteur = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 60, delayBetweenScanSuccess: 300 })
-          const c = await lecteur.decodeFromStream(flux, v, res => { if (res) lu(res.getText()) })
+          const c = await lecteur.decodeFromStream(flux, v, res => { if (res) lu(res.getText(), BarcodeFormat[res.getBarcodeFormat()]) })
           if (fini) c.stop(); else stopZxing = () => c.stop()
         }
       } catch (e) {
