@@ -340,13 +340,21 @@ function useLargeurEcran() {
   return Math.min(w - 16, 640)
 }
 
+/* Taille d'une case en pixels réels. Sur iPhone (densité d'écran entière : 2 ou 3), on prend un multiple
+   de cette densité : l'image tombe alors sur un nombre entier de points CSS et Safari ne la redimensionne pas
+   (sinon il la lisse et les bords des cases deviennent flous, ce qui gêne la douchette). */
+function tailleCase(max: number, dpr: number, mini: number) {
+  const pas = Number.isInteger(dpr) && dpr > 1 ? dpr : 1
+  return Math.max(mini * pas, Math.floor(max / pas) * pas)
+}
+
 function CodeBarre({ code }: { code: string }) {
   const ref = useRef<HTMLCanvasElement>(null), largeur = useLargeurEcran()
   const c = norm(code)
   useEffect(() => {
     const cv = ref.current; if (!cv) return
     const bits = eanBits(c), q = 12, n = bits.length + 2 * q, dpr = window.devicePixelRatio || 1
-    const m = Math.max(2, Math.floor(largeur * dpr / n)) // largeur d'un module, en pixels réels
+    const m = tailleCase(largeur * dpr / n, dpr, 2) // largeur d'un module, en pixels réels
     const h = Math.round(m * 40)
     cv.width = n * m; cv.height = h
     cv.style.width = (n * m / dpr) + 'px'; cv.style.height = (h / dpr) + 'px'
@@ -367,8 +375,8 @@ function QrCanvas({ texte }: { texte: string }) {
     const cv = ref.current; if (!cv) return
     import('qrcode').then(Q => {
       const marge = 4, taille = Q.create(texte, { errorCorrectionLevel: 'L' }).modules.size + 2 * marge
-      const dpr = window.devicePixelRatio || 1, cible = largeur * dpr
-      const scale = Math.max(3, Math.floor(cible / taille))
+      const dpr = window.devicePixelRatio || 1
+      const scale = tailleCase(largeur * dpr / taille, dpr, 3)
       return Q.toCanvas(cv, texte, { errorCorrectionLevel: 'L', margin: marge, scale }).then(() => {
         cv.style.width = (cv.width / dpr) + 'px'; cv.style.height = (cv.height / dpr) + 'px'
       })
@@ -513,6 +521,7 @@ function QrUnique({ panier, produits, retour, fini, total, enCours }: {
         {ici.length ? <QrCanvas texte={ici.join(SEPARATEUR)} /> : <p className="text-sm text-encre/50">Aucun article lisible.</p>}
         <p className="text-sm text-encre/70">Au total, la caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(montant)}</b>.</p>
         {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
+        <p className="text-[10px] text-encre/30">affichage v4 · densité {window.devicePixelRatio}</p>
         <p className="text-xs text-encre/50">{ASTUCE}. Sur iPhone : désactivez aussi True Tone et Night Shift, et inclinez un peu le téléphone pour éviter les reflets. Si ça ne passe pas, choisissez moins d'articles par QR.</p>
       </div>
       <div className="flex gap-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
