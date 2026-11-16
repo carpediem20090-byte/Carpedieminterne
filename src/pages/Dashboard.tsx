@@ -82,6 +82,21 @@ export default function Dashboard() {
         </p>
       </div>
 
+      <Link to="/panier" className="flex items-center gap-3 bg-laiton text-white rounded-2xl shadow-sm p-4">
+        <span className="text-3xl">🛒</span>
+        <span className="flex-1">
+          <span className="block font-semibold">Panier cave</span>
+          <span className="block text-sm text-white/90">{(() => {
+            try {
+              const ps = JSON.parse(localStorage.getItem('cd_paniers_cave') || '[]') as { lignes: { qte: number }[] }[]
+              const n = ps.reduce((s, p) => s + p.lignes.reduce((t, l) => t + l.qte, 0), 0)
+              return n ? `${n} article${n > 1 ? 's' : ''} en cours` : 'Scanner les cigares d\u2019un client'
+            } catch { return 'Scanner les cigares d\u2019un client' }
+          })()}</span>
+        </span>
+        <span className="text-2xl">›</span>
+      </Link>
+
       <form onSubmit={ajouterProduitRapide} className="bg-havane text-white rounded-2xl shadow-sm p-4 space-y-2">
         <label className="block text-sm font-medium">Produit terminé ? Note-le en 1 tap</label>
         <div className="flex gap-2">
