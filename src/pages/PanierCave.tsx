@@ -256,6 +256,7 @@ function CodeBarre({ code }: { code: string }) {
 function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void }) {
   const [i, setI] = useState(0)
   const [fin, setFin] = useState(false)
+  const [qr, setQr] = useState(false)
   const lignes = panier.lignes, l = lignes[Math.min(i, lignes.length - 1)], p = produits.get(l.code)
   const lisible = codeOk(l.code) && !p?.a_verifier
   const total = lignes.reduce((s, x) => s + (produits.get(x.code)?.prix || 0) * x.qte, 0)
@@ -267,6 +268,8 @@ function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produ
     wl?.request('screen').then(v => { verrou = v }).catch(() => { /* rien */ })
     return () => { verrou?.release().catch(() => { /* rien */ }) }
   }, [])
+
+  if (qr) return <QrUnique panier={panier} produits={produits} retour={() => setQr(false)} fini={() => { setQr(false); setFin(true) }} total={total} />
 
   if (fin) return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
@@ -284,6 +287,9 @@ function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produ
         <button onClick={fermer} className="text-sm text-havane underline">← Retour</button>
         <span className="text-sm font-medium">{panier.nom} · {i + 1} / {lignes.length}</span>
       </div>
+      <button onClick={() => setQr(true)} className="mx-4 mt-3 rounded-xl border-2 border-dashed border-laiton text-laiton text-sm font-semibold py-2.5">
+        🧪 Essayer le code unique (QR) pour tout le panier
+      </button>
 
       <div className="flex-1 flex flex-col items-center justify-center px-4 gap-4 text-center">
         <div>
@@ -308,6 +314,38 @@ function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produ
         {i < lignes.length - 1
           ? <button onClick={() => setI(i + 1)} className="flex-[2] rounded-xl bg-havane text-white font-semibold py-4">Suivant →</button>
           : <button onClick={() => setFin(true)} className="flex-[2] rounded-xl bg-green-700 text-white font-semibold py-4">Terminé ✓</button>}
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Essai : un seul QR code pour tout le panier ----------
+   Le QR contient tous les codes-barres séparés par « Entrée » (chaque article répété selon sa quantité).
+   Une douchette 2D en mode clavier les « tape » à la suite : la caisse croit recevoir plusieurs scans.
+   Ça dépend du réglage de la douchette et de la caisse : à tester. */
+const SEPARATEUR = '\r'
+function QrUnique({ panier, produits, retour, fini, total }: { panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number }) {
+  const [svg, setSvg] = useState('')
+  const exclus = panier.lignes.filter(l => !codeOk(l.code) || produits.get(l.code)?.a_verifier)
+  const codes = panier.lignes.filter(l => !exclus.includes(l)).flatMap(l => Array(l.qte).fill(norm(l.code)) as string[])
+  const contenu = codes.join(SEPARATEUR)
+  useEffect(() => {
+    import('qrcode').then(Q => Q.toString(contenu, { type: 'svg', errorCorrectionLevel: 'L', margin: 4 })).then(setSvg).catch(() => setSvg(''))
+  }, [contenu])
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <button onClick={retour} className="text-sm text-havane underline">← Codes un par un</button>
+        <span className="text-sm font-medium">{panier.nom} · {codes.length} article{codes.length > 1 ? 's' : ''}</span>
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 gap-4 text-center">
+        {svg ? <div className="w-full max-w-xs" dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="text-sm text-encre/50">Préparation…</p>}
+        <p className="text-sm text-encre/70">Scannez ce code une seule fois. La caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(total - exclus.reduce((s, l) => s + (produits.get(l.code)?.prix || 0) * l.qte, 0))}</b>.</p>
+        {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
+        <p className="text-xs text-encre/50">Si la caisse n'ajoute qu'un article ou affiche une erreur : revenez aux codes un par un.</p>
+      </div>
+      <div className="p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+        <button onClick={fini} className="w-full rounded-xl bg-green-700 text-white font-semibold py-4">Terminé ✓</button>
       </div>
     </div>
   )
