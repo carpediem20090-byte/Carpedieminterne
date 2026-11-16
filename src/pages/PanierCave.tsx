@@ -345,7 +345,7 @@ function QrCanvas({ texte }: { texte: string }) {
     const cv = ref.current; if (!cv) return
     import('qrcode').then(Q => {
       const marge = 4, taille = Q.create(texte, { errorCorrectionLevel: 'L' }).modules.size + 2 * marge
-      const dpr = window.devicePixelRatio || 1, cible = Math.min(largeur, 340) * dpr
+      const dpr = window.devicePixelRatio || 1, cible = largeur * dpr
       const scale = Math.max(3, Math.floor(cible / taille))
       return Q.toCanvas(cv, texte, { errorCorrectionLevel: 'L', margin: marge, scale }).then(() => {
         cv.style.width = (cv.width / dpr) + 'px'; cv.style.height = (cv.height / dpr) + 'px'
@@ -441,11 +441,16 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
    la douchette 2D les tape à la suite, la caisse croit recevoir plusieurs scans.
    Au-delà de PAR_QR articles, on découpe en plusieurs QR : un QR moins chargé se lit beaucoup plus facilement. */
 const SEPARATEUR = '\r'
-const PAR_QR = 8
+// Nombre d'articles par QR : réglable (mémorisé sur le téléphone). « Tout » = un seul QR, plus dense.
+const CHOIX_QR = [10, 20, 30, 0] as const // 0 = tout
+const CLE_QR = 'cd_panier_par_qr'
 function QrUnique({ panier, produits, retour, fini, total, enCours }: {
   panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number; enCours: boolean
 }) {
   const [page, setPage] = useState(0)
+  const [parQr, setParQr] = useState<number>(() => { try { const v = Number(localStorage.getItem(CLE_QR)); return CHOIX_QR.includes(v as never) ? v : 0 } catch { return 0 } })
+  useEffect(() => { try { localStorage.setItem(CLE_QR, String(parQr)) } catch { /* rien */ } setPage(0) }, [parQr])
+  const PAR_QR = parQr || 150 // limite technique d’un QR ≈ 200 articles
   const exclus = panier.lignes.filter(l => !codeOk(l.code) || produits.get(l.code)?.a_verifier)
   const codes = panier.lignes.filter(l => !exclus.includes(l)).flatMap(l => Array(l.qte).fill(norm(l.code)) as string[])
   const paquets: string[][] = []
@@ -461,11 +466,17 @@ function QrUnique({ panier, produits, retour, fini, total, enCours }: {
         <span className="text-sm font-medium">{panier.nom}{nb > 1 ? ` · QR ${page + 1} / ${nb}` : ''}</span>
       </div>
       <div className="flex-1 flex flex-col items-center justify-center px-4 gap-3 text-center">
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className="text-encre/60">Articles par QR :</span>
+          {CHOIX_QR.map(c => (
+            <button key={c} onClick={() => setParQr(c)} className={`rounded-full px-2.5 py-1 border ${parQr === c ? 'bg-havane text-white border-havane' : 'border-gray-300'}`}>{c || 'Tout'}</button>
+          ))}
+        </div>
         {nb > 1 && <p className="text-sm font-semibold text-laiton">QR {page + 1} sur {nb} · {ici.length} article{ici.length > 1 ? 's' : ''}</p>}
         {ici.length ? <QrCanvas texte={ici.join(SEPARATEUR)} /> : <p className="text-sm text-encre/50">Aucun article lisible.</p>}
         <p className="text-sm text-encre/70">Au total, la caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(montant)}</b>.</p>
         {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
-        <p className="text-xs text-encre/50">{ASTUCE}</p>
+        <p className="text-xs text-encre/50">{ASTUCE}. Si la douchette n'arrive pas à lire, choisissez moins d'articles par QR.</p>
       </div>
       <div className="flex gap-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         {nb > 1 && <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="flex-1 rounded-xl border border-gray-300 font-semibold py-4 disabled:opacity-30">←</button>}
