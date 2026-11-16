@@ -79,6 +79,9 @@ export default function PanierCave() {
     flash('+1 ' + (p.num ? 'N° ' + p.num + ' · ' : '') + nomProduit(p), true)
     return true
   }
+  function fixerQte(code: string, q: number) {
+    majPanier(pa => ({ ...pa, lignes: pa.lignes.map(l => l.code === code ? { ...l, qte: q } : l).filter(l => l.qte > 0) }))
+  }
   function changerQte(code: string, d: number) {
     majPanier(pa => ({ ...pa, lignes: pa.lignes.map(l => l.code === code ? { ...l, qte: l.qte + d } : l).filter(l => l.qte > 0) }))
   }
@@ -187,7 +190,7 @@ export default function PanierCave() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => changerQte(l.code, -1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">−</button>
-                    <span className="w-6 text-center font-semibold">{l.qte}</span>
+                    <ChampQte valeur={l.qte} onChange={q => fixerQte(l.code, q)} />
                     <button onClick={() => changerQte(l.code, 1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">+</button>
                   </div>
                   <div className="w-16 text-right text-sm font-semibold">{eur((p?.prix || 0) * l.qte)}</div>
@@ -213,6 +216,25 @@ export default function PanierCave() {
 
       {scan && <Scanner fermer={() => setScan(false)} onCode={ajouter} message={message} />}
     </div>
+  )
+}
+
+/* Quantité tapée au clavier : on peut écrire 12 directement au lieu d'appuyer 12 fois sur +. 0 = retirer. */
+function ChampQte({ valeur, onChange }: { valeur: number; onChange: (q: number) => void }) {
+  const [txt, setTxt] = useState(String(valeur))
+  useEffect(() => { setTxt(String(valeur)) }, [valeur])
+  function valider() {
+    const q = parseInt(txt, 10)
+    if (isNaN(q) || q < 0) { setTxt(String(valeur)); return }
+    if (q === 0 && !confirm('Retirer cet article du panier ?')) { setTxt(String(valeur)); return }
+    if (q !== valeur) onChange(Math.min(q, 999))
+  }
+  return (
+    <input value={txt} inputMode="numeric" pattern="[0-9]*" aria-label="Quantité"
+      onChange={e => setTxt(e.target.value.replace(/\D/g, '').slice(0, 3))}
+      onFocus={e => e.target.select()} onBlur={valider}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+      className="w-11 h-8 rounded-lg border border-gray-300 text-center font-semibold focus:outline-none focus:ring-2 focus:ring-havane" style={{ fontSize: 16 }} />
   )
 }
 
@@ -315,7 +337,7 @@ function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: 
 function useLargeurEcran() {
   const [w, setW] = useState(() => window.innerWidth)
   useEffect(() => { const f = () => setW(window.innerWidth); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
-  return Math.min(w - 24, 640)
+  return Math.min(w - 16, 640)
 }
 
 function CodeBarre({ code }: { code: string }) {
@@ -441,16 +463,31 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
    la douchette 2D les tape à la suite, la caisse croit recevoir plusieurs scans.
    Au-delà de PAR_QR articles, on découpe en plusieurs QR : un QR moins chargé se lit beaucoup plus facilement. */
 const SEPARATEUR = '\r'
-// Nombre d'articles par QR : réglable (mémorisé sur le téléphone). « Tout » = un seul QR, plus dense.
-const CHOIX_QR = [10, 20, 30, 0] as const // 0 = tout
+// Nombre d'articles par QR : réglable (mémorisé sur le téléphone).
+// « Auto » (par défaut) : autant d'articles que possible tant que chaque case du QR reste assez grosse
+// à l'écran pour la douchette (MODULE_MIN px) — un petit écran d'iPhone aura donc plus de QR qu'un grand Android.
+// « Tout » = un seul QR, quitte à avoir des cases très fines.
+const CHOIX_QR = [-1, 10, 20, 30, 0] as const // -1 = auto, 0 = tout
+const MODULE_MIN = 5 // taille mini d'une case du QR, en px CSS (≈ 0,8 mm)
 const CLE_QR = 'cd_panier_par_qr'
 function QrUnique({ panier, produits, retour, fini, total, enCours }: {
   panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number; enCours: boolean
 }) {
   const [page, setPage] = useState(0)
-  const [parQr, setParQr] = useState<number>(() => { try { const v = Number(localStorage.getItem(CLE_QR)); return CHOIX_QR.includes(v as never) ? v : 0 } catch { return 0 } })
+  const [parQr, setParQr] = useState<number>(() => { try { const r = localStorage.getItem(CLE_QR), v = Number(r); return r !== null && CHOIX_QR.includes(v as never) ? v : -1 } catch { return -1 } })
   useEffect(() => { try { localStorage.setItem(CLE_QR, String(parQr)) } catch { /* rien */ } setPage(0) }, [parQr])
-  const PAR_QR = parQr || 150 // limite technique d’un QR ≈ 200 articles
+  const largeur = useLargeurEcran()
+  const [autoN, setAutoN] = useState(8)
+  useEffect(() => {
+    // plus grand nombre d'articles dont le QR garde des cases d'au moins MODULE_MIN px
+    import('qrcode').then(Q => {
+      const maxCases = Math.floor(largeur / MODULE_MIN) - 8
+      const taille = (n: number) => Q.create(Array(n).fill('0000000000000').join(SEPARATEUR), { errorCorrectionLevel: 'L' }).modules.size
+      let n = 1; while (n < 150 && taille(n + 1) <= maxCases) n++
+      setAutoN(n)
+    }).catch(() => { /* rien */ })
+  }, [largeur])
+  const PAR_QR = parQr === -1 ? autoN : parQr || 150 // limite technique d’un QR ≈ 200 articles
   const exclus = panier.lignes.filter(l => !codeOk(l.code) || produits.get(l.code)?.a_verifier)
   const codes = panier.lignes.filter(l => !exclus.includes(l)).flatMap(l => Array(l.qte).fill(norm(l.code)) as string[])
   const paquets: string[][] = []
@@ -465,18 +502,18 @@ function QrUnique({ panier, produits, retour, fini, total, enCours }: {
         <button onClick={retour} className="text-sm text-havane underline">← Codes un par un</button>
         <span className="text-sm font-medium">{panier.nom}{nb > 1 ? ` · QR ${page + 1} / ${nb}` : ''}</span>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center px-4 gap-3 text-center">
-        <div className="flex items-center gap-1.5 text-xs">
+      <div className="flex-1 flex flex-col items-center justify-center px-2 gap-3 text-center">
+        <div className="flex flex-wrap items-center justify-center gap-1.5 text-xs">
           <span className="text-encre/60">Articles par QR :</span>
           {CHOIX_QR.map(c => (
-            <button key={c} onClick={() => setParQr(c)} className={`rounded-full px-2.5 py-1 border ${parQr === c ? 'bg-havane text-white border-havane' : 'border-gray-300'}`}>{c || 'Tout'}</button>
+            <button key={c} onClick={() => setParQr(c)} className={`rounded-full px-2.5 py-1 border ${parQr === c ? 'bg-havane text-white border-havane' : 'border-gray-300'}`}>{c === -1 ? 'Auto' : c || 'Tout'}</button>
           ))}
         </div>
         {nb > 1 && <p className="text-sm font-semibold text-laiton">QR {page + 1} sur {nb} · {ici.length} article{ici.length > 1 ? 's' : ''}</p>}
         {ici.length ? <QrCanvas texte={ici.join(SEPARATEUR)} /> : <p className="text-sm text-encre/50">Aucun article lisible.</p>}
         <p className="text-sm text-encre/70">Au total, la caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(montant)}</b>.</p>
         {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
-        <p className="text-xs text-encre/50">{ASTUCE}. Si la douchette n'arrive pas à lire, choisissez moins d'articles par QR.</p>
+        <p className="text-xs text-encre/50">{ASTUCE}. Sur iPhone : désactivez aussi True Tone et Night Shift, et inclinez un peu le téléphone pour éviter les reflets. Si ça ne passe pas, choisissez moins d'articles par QR.</p>
       </div>
       <div className="flex gap-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         {nb > 1 && <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="flex-1 rounded-xl border border-gray-300 font-semibold py-4 disabled:opacity-30">←</button>}
