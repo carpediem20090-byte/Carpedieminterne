@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/AuthContext'
 import { eanBits, codeOk } from '../lib/etiquettes/dessin'
 
 // Panier cave : on scanne les étiquettes (ou les boîtes) dans la cave à cigares,
 // puis à la caisse l'appli affiche les codes-barres un par un pour la douchette.
-// Les paniers sont gardés sur le téléphone (pas en base) : rien n'est modifié dans les données existantes.
+// Les paniers en cours sont gardés sur le téléphone ; chaque vente terminée est enregistrée dans `ventes_cave`
+// (qui a vendu quoi), visible dans l'onglet Historique.
 
 type Produit = { code: string; num: string | null; rayon: string; marque: string | null; modele: string | null; prix: number; a_verifier: boolean }
 type Ligne = { code: string; qte: number }
@@ -42,6 +44,8 @@ export default function PanierCave() {
   const [caisse, setCaisse] = useState(false)
   const [recherche, setRecherche] = useState('')
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
+  const [onglet, setOnglet] = useState<'panier' | 'historique'>('panier')
+  const { profile } = useAuth()
 
   useEffect(() => { try { localStorage.setItem(CLE, JSON.stringify(paniers)) } catch { /* rien */ } }, [paniers])
 
@@ -102,7 +106,15 @@ export default function PanierCave() {
     return out
   }, [recherche, produits])
 
-  if (caisse) return <ModeCaisse panier={actif} produits={produits} fermer={() => setCaisse(false)}
+  async function enregistrer(mode: 'codes' | 'qr'): Promise<string | null> {
+    const lignes = actif.lignes.map(l => { const p = produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomProduit(p), prix: p?.prix || 0, qte: l.qte } })
+    const { error } = await supabase.from('ventes_cave').insert({
+      vendu_par: profile?.id, client: actif.nom, lignes, nb_articles: nbArticles, total: Math.round(total * 100) / 100, mode,
+    })
+    return error ? error.message : null
+  }
+
+  if (caisse) return <ModeCaisse panier={actif} produits={produits} fermer={() => setCaisse(false)} enregistrer={enregistrer}
     vider={() => { majPanier(p => ({ ...p, lignes: [] })); setCaisse(false) }} />
 
   return (
@@ -112,6 +124,15 @@ export default function PanierCave() {
         <p className="text-sm text-encre/60">Scannez les cigares dans la cave, puis passez en caisse avec le téléphone.</p>
       </div>
 
+      <div className="flex bg-white rounded-xl shadow-sm p-1">
+        {(['panier', 'historique'] as const).map(o => (
+          <button key={o} onClick={() => setOnglet(o)} className={`flex-1 rounded-lg py-2 text-sm font-medium ${onglet === o ? 'bg-havane text-white' : 'text-encre/60'}`}>
+            {o === 'panier' ? '🛒 Panier' : '📜 Historique'}
+          </button>
+        ))}
+      </div>
+
+      {onglet === 'historique' ? <Historique /> : <>
       {erreur && <p className="text-sm text-corail">{erreur}</p>}
 
       {/* Paniers en cours */}
@@ -187,99 +208,195 @@ export default function PanierCave() {
         </button>
       </div>
 
-      <p className="text-xs text-encre/50">Les paniers sont gardés sur ce téléphone uniquement. Prix = prix des étiquettes (la caisse fait foi).</p>
+      <p className="text-xs text-encre/50">Les paniers en cours sont gardés sur ce téléphone. Chaque vente terminée est enregistrée à votre nom dans l'historique. Prix = prix des étiquettes (la caisse fait foi).</p>
+      </>}
 
       {scan && <Scanner fermer={() => setScan(false)} onCode={ajouter} message={message} />}
     </div>
   )
 }
 
-/* ---------- Scanner (appareil photo) ---------- */
+/* ---------- Scanner (appareil photo) ----------
+   1. Détecteur intégré au téléphone (BarcodeDetector, Android/Chrome) : le plus rapide et le plus fiable.
+   2. Sinon (iPhone…) : librairie zxing en mode « essayer plus fort ».
+   Caméra arrière en haute définition, mise au point continue, lampe si disponible (cave sombre). */
+type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string }[]> }
 function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: string) => boolean; message: { texte: string; ok: boolean } | null }) {
   const video = useRef<HTMLVideoElement>(null)
   const [erreur, setErreur] = useState<string | null>(null)
+  const [piste, setPiste] = useState<MediaStreamTrack | null>(null)
+  const [lampe, setLampe] = useState(false)
+  const [lampeDispo, setLampeDispo] = useState(false)
   const dernier = useRef<{ code: string; t: number }>({ code: '', t: 0 })
   const cb = useRef(onCode); cb.current = onCode
 
+  function lu(code: string) {
+    const now = Date.now()
+    // même code vu en continu : on ne le recompte qu'après l'avoir quitté 1,5 s
+    if (code === dernier.current.code && now - dernier.current.t < 1500) { dernier.current.t = now; return }
+    dernier.current = { code, t: now }
+    if (cb.current(code)) bip()
+  }
+
   useEffect(() => {
-    let stop: (() => void) | null = null, annule = false
+    let fini = false, flux: MediaStream | null = null, minuterie = 0, stopZxing: (() => void) | null = null
     ;(async () => {
       try {
-        const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([import('@zxing/browser'), import('@zxing/library')])
-        const hints = new Map(); hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8])
-        const lecteur = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 150 })
-        const controles = await lecteur.decodeFromConstraints({ video: { facingMode: { ideal: 'environment' } } }, video.current!, (res) => {
-          if (!res) return
-          const code = res.getText(), now = Date.now()
-          // même code lu en continu : on attend 2 s avant de le recompter
-          if (code === dernier.current.code && now - dernier.current.t < 2000) { dernier.current.t = now; return }
-          dernier.current = { code, t: now }
-          if (cb.current(code)) bip()
+        flux = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
         })
-        if (annule) controles.stop(); else stop = () => controles.stop()
+        if (fini) { flux.getTracks().forEach(t => t.stop()); return }
+        const t = flux.getVideoTracks()[0]; setPiste(t)
+        const cap = (t.getCapabilities?.() ?? {}) as Record<string, unknown>
+        if (cap.torch) setLampeDispo(true)
+        if (Array.isArray(cap.focusMode) && cap.focusMode.includes('continuous'))
+          t.applyConstraints({ advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet] }).catch(() => { /* rien */ })
+        const v = video.current!; v.srcObject = flux; await v.play().catch(() => { /* rien */ })
+
+        const BD = (window as unknown as { BarcodeDetector?: { new (o: { formats: string[] }): Detecteur; getSupportedFormats: () => Promise<string[]> } }).BarcodeDetector
+        const formats = BD ? (await BD.getSupportedFormats().catch(() => [] as string[])).filter(f => ['ean_13', 'upc_a', 'ean_8'].includes(f)) : []
+        if (BD && formats.includes('ean_13')) {
+          const det = new BD({ formats })
+          const boucle = async () => {
+            if (fini) return
+            try { if (v.readyState >= 2) for (const r of await det.detect(v)) lu(r.rawValue) } catch { /* rien */ }
+            minuterie = window.setTimeout(boucle, 80)
+          }
+          boucle()
+        } else {
+          const [{ BrowserMultiFormatReader }, { DecodeHintType, BarcodeFormat }] = await Promise.all([import('@zxing/browser'), import('@zxing/library')])
+          const hints = new Map()
+          hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.EAN_13, BarcodeFormat.UPC_A, BarcodeFormat.EAN_8])
+          hints.set(DecodeHintType.TRY_HARDER, true)
+          const lecteur = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 60, delayBetweenScanSuccess: 300 })
+          const c = await lecteur.decodeFromStream(flux, v, res => { if (res) lu(res.getText()) })
+          if (fini) c.stop(); else stopZxing = () => c.stop()
+        }
       } catch (e) {
         setErreur("Impossible d'ouvrir l'appareil photo. Autorisez la caméra pour ce site dans les réglages du navigateur. (" + (e instanceof Error ? e.message : String(e)) + ')')
       }
     })()
-    return () => { annule = true; stop?.() }
+    return () => { fini = true; clearTimeout(minuterie); stopZxing?.(); flux?.getTracks().forEach(t => t.stop()) }
   }, [])
+
+  function basculerLampe() {
+    if (!piste) return
+    const n = !lampe
+    piste.applyConstraints({ advanced: [{ torch: n } as MediaTrackConstraintSet] }).then(() => setLampe(n)).catch(() => setLampeDispo(false))
+  }
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
       <div className="relative flex-1 overflow-hidden">
         <video ref={video} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
-        <div className="absolute inset-x-8 top-1/2 -translate-y-1/2 h-32 border-4 border-laiton rounded-xl" />
-        {erreur && <p className="absolute inset-x-4 top-4 bg-white rounded-lg p-3 text-sm text-corail">{erreur}</p>}
+        <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 h-40 border-4 border-laiton rounded-xl" />
+        {lampeDispo && (
+          <button onClick={basculerLampe} className={`absolute top-4 right-4 rounded-full px-4 py-2 text-sm font-semibold ${lampe ? 'bg-laiton text-white' : 'bg-white/90 text-havane'}`}>
+            🔦 {lampe ? 'Éteindre' : 'Lampe'}
+          </button>
+        )}
+        {erreur && <p className="absolute inset-x-4 top-16 bg-white rounded-lg p-3 text-sm text-corail">{erreur}</p>}
         {message && (
           <p className={`absolute inset-x-4 bottom-4 rounded-lg p-3 text-sm font-medium text-white ${message.ok ? 'bg-green-700' : 'bg-corail'}`}>{message.texte}</p>
         )}
       </div>
       <div className="p-4 bg-black" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <p className="text-white/70 text-xs text-center mb-3">Visez le code-barres de l'étiquette ou de la boîte. Chaque lecture ajoute 1 cigare.</p>
+        <p className="text-white/70 text-xs text-center mb-3">Tenez le téléphone à 10–15 cm, code-barres à plat dans le cadre. Chaque lecture ajoute 1 cigare.</p>
         <button onClick={fermer} className="w-full rounded-xl bg-white text-havane font-semibold py-3.5">Terminé</button>
       </div>
     </div>
   )
 }
 
-/* ---------- Mode caisse : un code-barres à la fois ---------- */
+/* ---------- Affichage pour la douchette ----------
+   Dessin sur canvas au pixel près : chaque barre (ou case du QR) fait un nombre entier de pixels de l'écran,
+   sans flou ni barres d'épaisseurs inégales — c'est ce qui rend la lecture à l'écran fiable. */
+function useLargeurEcran() {
+  const [w, setW] = useState(() => window.innerWidth)
+  useEffect(() => { const f = () => setW(window.innerWidth); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
+  return Math.min(w - 24, 640)
+}
+
 function CodeBarre({ code }: { code: string }) {
-  const c = norm(code), bits = eanBits(c), q = 11, W = bits.length + 2 * q
+  const ref = useRef<HTMLCanvasElement>(null), largeur = useLargeurEcran()
+  const c = norm(code)
+  useEffect(() => {
+    const cv = ref.current; if (!cv) return
+    const bits = eanBits(c), q = 12, n = bits.length + 2 * q, dpr = window.devicePixelRatio || 1
+    const m = Math.max(2, Math.floor(largeur * dpr / n)) // largeur d'un module, en pixels réels
+    const h = Math.round(m * 40)
+    cv.width = n * m; cv.height = h
+    cv.style.width = (n * m / dpr) + 'px'; cv.style.height = (h / dpr) + 'px'
+    const g = cv.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, h); g.fillStyle = '#000'
+    for (let i = 0; i < bits.length; i++) if (bits[i] === '1') g.fillRect((q + i) * m, 0, m, h)
+  }, [c, largeur])
   return (
-    <svg viewBox={`0 0 ${W} 62`} className="w-full max-w-md mx-auto" style={{ background: '#fff' }} shapeRendering="crispEdges">
-      {bits.split('').map((b, i) => b === '1' ? <rect key={i} x={q + i} y={2} width={1} height={50} fill="#000" /> : null)}
-      <text x={W / 2} y={60} textAnchor="middle" fontSize="8" fontFamily="monospace" letterSpacing="1.5">{c}</text>
-    </svg>
+    <div className="bg-white">
+      <canvas ref={ref} className="block mx-auto" style={{ imageRendering: 'pixelated' }} />
+      <div className="text-center font-mono tracking-widest text-sm mt-1">{c}</div>
+    </div>
   )
 }
 
-function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void }) {
-  const [i, setI] = useState(0)
-  const [fin, setFin] = useState(false)
-  const [qr, setQr] = useState(false)
-  const lignes = panier.lignes, l = lignes[Math.min(i, lignes.length - 1)], p = produits.get(l.code)
-  const lisible = codeOk(l.code) && !p?.a_verifier
-  const total = lignes.reduce((s, x) => s + (produits.get(x.code)?.prix || 0) * x.qte, 0)
-
+function QrCanvas({ texte }: { texte: string }) {
+  const ref = useRef<HTMLCanvasElement>(null), largeur = useLargeurEcran()
   useEffect(() => {
-    // garder l'écran allumé pendant le passage en caisse (si le téléphone le permet)
+    const cv = ref.current; if (!cv) return
+    import('qrcode').then(Q => {
+      const marge = 4, taille = Q.create(texte, { errorCorrectionLevel: 'L' }).modules.size + 2 * marge
+      const dpr = window.devicePixelRatio || 1, cible = Math.min(largeur, 340) * dpr
+      const scale = Math.max(3, Math.floor(cible / taille))
+      return Q.toCanvas(cv, texte, { errorCorrectionLevel: 'L', margin: marge, scale }).then(() => {
+        cv.style.width = (cv.width / dpr) + 'px'; cv.style.height = (cv.height / dpr) + 'px'
+      })
+    }).catch(() => { /* rien */ })
+  }, [texte, largeur])
+  return <canvas ref={ref} className="block mx-auto" style={{ imageRendering: 'pixelated' }} />
+}
+
+function useEcranAllume() {
+  useEffect(() => {
     let verrou: { release: () => Promise<void> } | null = null
     const wl = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock
     wl?.request('screen').then(v => { verrou = v }).catch(() => { /* rien */ })
     return () => { verrou?.release().catch(() => { /* rien */ }) }
   }, [])
+}
 
-  if (qr) return <QrUnique panier={panier} produits={produits} retour={() => setQr(false)} fini={() => { setQr(false); setFin(true) }} total={total} />
+const ASTUCE = 'Luminosité de l’écran au maximum · téléphone à plat, 10 à 15 cm sous la douchette'
+
+/* ---------- Mode caisse ---------- */
+function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
+  panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void; enregistrer: (mode: 'codes' | 'qr') => Promise<string | null>
+}) {
+  const [i, setI] = useState(0)
+  const [qr, setQr] = useState(false)
+  const [fin, setFin] = useState<null | { erreur: string | null }>(null)
+  const [enCours, setEnCours] = useState(false)
+  const lignes = panier.lignes, l = lignes[Math.min(i, lignes.length - 1)], p = produits.get(l.code)
+  const lisible = codeOk(l.code) && !p?.a_verifier
+  const total = lignes.reduce((s, x) => s + (produits.get(x.code)?.prix || 0) * x.qte, 0)
+  useEcranAllume()
+
+  async function terminer(mode: 'codes' | 'qr') {
+    setEnCours(true); const err = await enregistrer(mode); setEnCours(false); setFin({ erreur: err })
+  }
 
   if (fin) return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
       <p className="text-4xl">✅</p>
       <p className="text-lg font-semibold text-havane">Tous les articles sont passés</p>
       <p className="text-sm text-encre/60">Vérifiez que la caisse affiche bien {eur(total)}.</p>
+      {fin.erreur
+        ? <p className="text-sm text-corail">⚠️ Vente non enregistrée dans l'historique : {fin.erreur}</p>
+        : <p className="text-sm text-green-700">Vente enregistrée dans l'historique.</p>}
       <button onClick={vider} className="w-full max-w-sm rounded-xl bg-havane text-white font-semibold py-4">Vider le panier</button>
       <button onClick={fermer} className="w-full max-w-sm rounded-xl border border-gray-300 font-semibold py-3.5">Garder le panier</button>
     </div>
   )
+
+  if (qr) return <QrUnique panier={panier} produits={produits} total={total} enCours={enCours} retour={() => setQr(false)} fini={() => terminer('qr')} />
 
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
@@ -287,11 +404,11 @@ function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produ
         <button onClick={fermer} className="text-sm text-havane underline">← Retour</button>
         <span className="text-sm font-medium">{panier.nom} · {i + 1} / {lignes.length}</span>
       </div>
-      <button onClick={() => setQr(true)} className="mx-4 mt-3 rounded-xl border-2 border-dashed border-laiton text-laiton text-sm font-semibold py-2.5">
-        🧪 Essayer le code unique (QR) pour tout le panier
+      <button onClick={() => setQr(true)} className="mx-4 mt-3 rounded-xl bg-laiton text-white text-sm font-semibold py-3">
+        ▦ Tout le panier en un seul QR code
       </button>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-4 gap-4 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center px-3 gap-4 text-center">
         <div>
           {p?.num && <div className="text-laiton font-semibold">N° {p.num}</div>}
           <div className="text-lg font-semibold">{nomProduit(p)}</div>
@@ -302,51 +419,173 @@ function ModeCaisse({ panier, produits, fermer, vider }: { panier: Panier; produ
             ⚠️ Code-barres à vérifier : à saisir à la main en caisse<div className="font-mono text-lg mt-1">{l.code}</div>
           </div>
         )}
-        <div className={`rounded-2xl px-6 py-3 ${l.qte > 1 ? 'bg-laiton text-white' : 'bg-gray-100'}`}>
+        <div className={`rounded-2xl px-6 py-2 ${l.qte > 1 ? 'bg-laiton text-white' : 'bg-gray-100'}`}>
           <div className="text-xs uppercase tracking-wide">Quantité</div>
-          <div className="text-4xl font-bold">× {l.qte}</div>
+          <div className="text-3xl font-bold">× {l.qte}</div>
         </div>
-        {l.qte > 1 && <p className="text-xs text-encre/60">Scanner {l.qte} fois, ou saisir la quantité en caisse.</p>}
+        <p className="text-xs text-encre/50">{ASTUCE}</p>
       </div>
 
       <div className="flex gap-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <button onClick={() => setI(Math.max(0, i - 1))} disabled={i === 0} className="flex-1 rounded-xl border border-gray-300 font-semibold py-4 disabled:opacity-30">← Précédent</button>
         {i < lignes.length - 1
           ? <button onClick={() => setI(i + 1)} className="flex-[2] rounded-xl bg-havane text-white font-semibold py-4">Suivant →</button>
-          : <button onClick={() => setFin(true)} className="flex-[2] rounded-xl bg-green-700 text-white font-semibold py-4">Terminé ✓</button>}
+          : <button onClick={() => terminer('codes')} disabled={enCours} className="flex-[2] rounded-xl bg-green-700 text-white font-semibold py-4 disabled:opacity-50">Terminé ✓</button>}
       </div>
     </div>
   )
 }
 
-/* ---------- Essai : un seul QR code pour tout le panier ----------
-   Le QR contient tous les codes-barres séparés par « Entrée » (chaque article répété selon sa quantité).
-   Une douchette 2D en mode clavier les « tape » à la suite : la caisse croit recevoir plusieurs scans.
-   Ça dépend du réglage de la douchette et de la caisse : à tester. */
+/* ---------- Un seul QR code pour tout le panier ----------
+   Le QR contient tous les codes-barres séparés par « Entrée » (chaque article répété selon sa quantité) :
+   la douchette 2D les tape à la suite, la caisse croit recevoir plusieurs scans.
+   Au-delà de PAR_QR articles, on découpe en plusieurs QR : un QR moins chargé se lit beaucoup plus facilement. */
 const SEPARATEUR = '\r'
-function QrUnique({ panier, produits, retour, fini, total }: { panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number }) {
-  const [svg, setSvg] = useState('')
+const PAR_QR = 8
+function QrUnique({ panier, produits, retour, fini, total, enCours }: {
+  panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number; enCours: boolean
+}) {
+  const [page, setPage] = useState(0)
   const exclus = panier.lignes.filter(l => !codeOk(l.code) || produits.get(l.code)?.a_verifier)
   const codes = panier.lignes.filter(l => !exclus.includes(l)).flatMap(l => Array(l.qte).fill(norm(l.code)) as string[])
-  const contenu = codes.join(SEPARATEUR)
-  useEffect(() => {
-    import('qrcode').then(Q => Q.toString(contenu, { type: 'svg', errorCorrectionLevel: 'L', margin: 4 })).then(setSvg).catch(() => setSvg(''))
-  }, [contenu])
+  const paquets: string[][] = []
+  for (let k = 0; k < codes.length; k += PAR_QR) paquets.push(codes.slice(k, k + PAR_QR))
+  const nb = paquets.length, ici = paquets[Math.min(page, nb - 1)] || []
+  const montant = total - exclus.reduce((s, l) => s + (produits.get(l.code)?.prix || 0) * l.qte, 0)
+  useEcranAllume()
+
   return (
     <div className="fixed inset-0 z-50 bg-white flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="flex items-center justify-between px-4 py-3 border-b">
         <button onClick={retour} className="text-sm text-havane underline">← Codes un par un</button>
-        <span className="text-sm font-medium">{panier.nom} · {codes.length} article{codes.length > 1 ? 's' : ''}</span>
+        <span className="text-sm font-medium">{panier.nom}{nb > 1 ? ` · QR ${page + 1} / ${nb}` : ''}</span>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center px-6 gap-4 text-center">
-        {svg ? <div className="w-full max-w-xs" dangerouslySetInnerHTML={{ __html: svg }} /> : <p className="text-sm text-encre/50">Préparation…</p>}
-        <p className="text-sm text-encre/70">Scannez ce code une seule fois. La caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(total - exclus.reduce((s, l) => s + (produits.get(l.code)?.prix || 0) * l.qte, 0))}</b>.</p>
+      <div className="flex-1 flex flex-col items-center justify-center px-4 gap-3 text-center">
+        {nb > 1 && <p className="text-sm font-semibold text-laiton">QR {page + 1} sur {nb} · {ici.length} article{ici.length > 1 ? 's' : ''}</p>}
+        {ici.length ? <QrCanvas texte={ici.join(SEPARATEUR)} /> : <p className="text-sm text-encre/50">Aucun article lisible.</p>}
+        <p className="text-sm text-encre/70">Au total, la caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(montant)}</b>.</p>
         {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
-        <p className="text-xs text-encre/50">Si la caisse n'ajoute qu'un article ou affiche une erreur : revenez aux codes un par un.</p>
+        <p className="text-xs text-encre/50">{ASTUCE}</p>
       </div>
-      <div className="p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <button onClick={fini} className="w-full rounded-xl bg-green-700 text-white font-semibold py-4">Terminé ✓</button>
+      <div className="flex gap-3 p-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+        {nb > 1 && <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0} className="flex-1 rounded-xl border border-gray-300 font-semibold py-4 disabled:opacity-30">←</button>}
+        {page < nb - 1
+          ? <button onClick={() => setPage(page + 1)} className="flex-[2] rounded-xl bg-havane text-white font-semibold py-4">QR suivant →</button>
+          : <button onClick={fini} disabled={enCours} className="flex-[2] rounded-xl bg-green-700 text-white font-semibold py-4 disabled:opacity-50">Terminé ✓</button>}
       </div>
+    </div>
+  )
+}
+
+/* ---------- Historique des ventes ---------- */
+type Vente = {
+  id: string; vendu_par: string | null; vendu_le: string; client: string | null; nb_articles: number; total: number; mode: string
+  lignes: { code: string; num: string | null; nom: string; prix: number; qte: number }[]
+  profiles?: { full_name: string } | null
+}
+const PERIODES = { jour: "Aujourd'hui", semaine: '7 jours', mois: 'Ce mois', tout: 'Tout' } as const
+function debutPeriode(p: keyof typeof PERIODES) {
+  const d = new Date(); d.setHours(0, 0, 0, 0)
+  if (p === 'semaine') d.setDate(d.getDate() - 6)
+  else if (p === 'mois') d.setDate(1)
+  else if (p === 'tout') return null
+  return d.toISOString()
+}
+
+function Historique() {
+  const { estPatron } = useAuth()
+  const [ventes, setVentes] = useState<Vente[]>([])
+  const [loading, setLoading] = useState(true)
+  const [erreur, setErreur] = useState<string | null>(null)
+  const [periode, setPeriode] = useState<keyof typeof PERIODES>('jour')
+  const [vendeur, setVendeur] = useState('')
+  const [ouverte, setOuverte] = useState<string | null>(null)
+
+  async function charger() {
+    setLoading(true); setErreur(null)
+    let q = supabase.from('ventes_cave').select('*, profiles!vendu_par(full_name)').order('vendu_le', { ascending: false }).limit(500)
+    const d = debutPeriode(periode); if (d) q = q.gte('vendu_le', d)
+    const { data, error } = await q
+    if (error) setErreur("Impossible de charger l'historique : " + error.message)
+    setVentes((data as Vente[]) ?? []); setLoading(false)
+  }
+  useEffect(() => { charger() }, [periode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function supprimer(v: Vente) {
+    if (!confirm('Supprimer cette vente de l’historique ?')) return
+    const { error } = await supabase.from('ventes_cave').delete().eq('id', v.id)
+    if (error) alert('Suppression impossible : ' + error.message); else setVentes(vs => vs.filter(x => x.id !== v.id))
+  }
+
+  const nomVendeur = (v: Vente) => v.profiles?.full_name || 'Compte supprimé'
+  const parVendeur = useMemo(() => {
+    const m = new Map<string, { nom: string; nb: number; articles: number; total: number }>()
+    for (const v of ventes) {
+      const k = v.vendu_par || '?', e = m.get(k) || { nom: nomVendeur(v), nb: 0, articles: 0, total: 0 }
+      e.nb++; e.articles += v.nb_articles; e.total += Number(v.total) || 0; m.set(k, e)
+    }
+    return [...m.entries()].sort((a, b) => b[1].total - a[1].total)
+  }, [ventes])
+  const liste = vendeur ? ventes.filter(v => (v.vendu_par || '?') === vendeur) : ventes
+  const fmtDate = (s: string) => new Date(s).toLocaleString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {(Object.keys(PERIODES) as (keyof typeof PERIODES)[]).map(p => (
+          <button key={p} onClick={() => setPeriode(p)}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-sm border ${p === periode ? 'bg-havane text-white border-havane' : 'bg-white border-gray-300'}`}>{PERIODES[p]}</button>
+        ))}
+      </div>
+
+      {erreur && <p className="text-sm text-corail">{erreur}</p>}
+      {!estPatron && <p className="text-xs text-encre/50">Vous voyez vos propres ventes. Les patrons voient celles de toute l'équipe.</p>}
+
+      {parVendeur.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm p-3 space-y-1">
+          {estPatron && parVendeur.length > 1 && (
+            <button onClick={() => setVendeur('')} className={`w-full flex justify-between text-sm px-2 py-1.5 rounded-lg ${!vendeur ? 'bg-creme' : ''}`}>
+              <span className="font-semibold">Toute l'équipe</span>
+              <span>{ventes.length} vente{ventes.length > 1 ? 's' : ''} · <b>{eur(ventes.reduce((s, v) => s + (Number(v.total) || 0), 0))}</b></span>
+            </button>
+          )}
+          {parVendeur.map(([k, e]) => (
+            <button key={k} onClick={() => setVendeur(vendeur === k ? '' : k)} className={`w-full flex justify-between text-sm px-2 py-1.5 rounded-lg ${vendeur === k ? 'bg-creme' : ''}`}>
+              <span>{e.nom}</span>
+              <span>{e.nb} vente{e.nb > 1 ? 's' : ''} · {e.articles} art. · <b>{eur(e.total)}</b></span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {loading ? <p className="text-sm text-encre/50 text-center py-4">Chargement…</p>
+        : liste.length === 0 ? <p className="text-sm text-encre/50 text-center py-4">Aucune vente sur cette période.</p>
+        : (
+          <div className="space-y-2">
+            {liste.map(v => (
+              <div key={v.id} className="bg-white rounded-xl shadow-sm">
+                <button onClick={() => setOuverte(ouverte === v.id ? null : v.id)} className="w-full text-left p-3 flex justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">{v.client || 'Client'} <span className="text-encre/50 font-normal">· {nomVendeur(v)}</span></div>
+                    <div className="text-xs text-encre/50">{fmtDate(v.vendu_le)} · {v.nb_articles} article{v.nb_articles > 1 ? 's' : ''}{v.mode === 'qr' ? ' · QR' : ''}</div>
+                  </div>
+                  <span className="font-semibold text-havane shrink-0">{eur(Number(v.total))}</span>
+                </button>
+                {ouverte === v.id && (
+                  <div className="border-t px-3 py-2 space-y-1">
+                    {v.lignes.map((l, k) => (
+                      <div key={k} className="flex justify-between text-sm gap-2">
+                        <span className="min-w-0 truncate">{l.qte} × {l.num && <span className="text-laiton">N° {l.num} · </span>}{l.nom}</span>
+                        <span className="shrink-0">{eur(l.prix * l.qte)}</span>
+                      </div>
+                    ))}
+                    {estPatron && <button onClick={() => supprimer(v)} className="text-xs text-corail underline pt-1">Supprimer cette vente</button>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
     </div>
   )
 }

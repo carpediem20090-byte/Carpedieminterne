@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 12 novembre 2026.
+> Dernière mise à jour : 16 novembre 2026.
 
 ## Où sont les choses
 
@@ -60,11 +60,12 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 
 ## Panier cave (16 nov. 2026, branche `panier-cave`)
 
-- Page `/panier` (menu « Plus » → « 🛒 Panier cave »). Code : `src/pages/PanierCave.tsx`.
-- Scan à l'appareil photo (librairie `@zxing/browser`, EAN-13 / UPC-A / EAN-8) des étiquettes prix ou des boîtes ; chaque lecture ajoute 1 article. Recherche manuelle par n° / marque / modèle en secours.
-- Articles et prix lus dans `etiquettes_articles` (lecture seule). Plusieurs paniers en parallèle (un par client), **gardés sur le téléphone uniquement** (localStorage `cd_paniers_cave`), aucune table créée.
-- « Passer en caisse » : affiche un code-barres à la fois, en grand, avec la quantité ; la caissière le scanne à la douchette Bimedia. Écran maintenu allumé si possible.
-- À vérifier : que la douchette Bimedia lise un code-barres sur écran. Question posée à Bimedia : possibilité d'envoyer un ticket en attente par API (version idéale, sans scan en caisse).
+- Page `/panier` (menu « Plus » → « 🛒 Panier cave »). Code : `src/pages/PanierCave.tsx`. Onglets **Panier** et **Historique**.
+- Scan à l'appareil photo : détecteur intégré du téléphone (`BarcodeDetector`, Android) sinon `@zxing/browser` (iPhone) ; caméra HD, mise au point continue, bouton lampe si dispo. EAN-13 / UPC-A / EAN-8 ; chaque lecture ajoute 1 article. Recherche manuelle par n° / marque / modèle en secours.
+- Articles et prix lus dans `etiquettes_articles` (lecture seule). Plusieurs paniers en parallèle (un par client), paniers **en cours** gardés sur le téléphone (localStorage `cd_paniers_cave`).
+- « Passer en caisse » : un code-barres à la fois, dessiné sur canvas **au pixel près** (lecture douchette fiable), avec la quantité. Ou **QR code unique** : tous les codes séparés par un retour chariot (`\r`), chaque article répété selon sa quantité ; la douchette Bimedia les « tape » à la suite → **testé OK le 16 nov.** Découpé en plusieurs QR au-delà de 8 articles (plus facile à lire).
+- **Historique** (migration 0030, table `ventes_cave`) : chaque vente terminée est enregistrée (vendeur = compte connecté, client, détail des lignes figé, nb articles, total, mode codes/qr). Employé : voit ses ventes ; patrons : tout, totaux par vendeur, suppression. Filtres aujourd'hui / 7 jours / mois / tout.
+- Idée possible : demander à Bimedia un ticket en attente par API (sans scan en caisse).
 
 ## Points de vigilance connus
 
