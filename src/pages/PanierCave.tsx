@@ -52,6 +52,7 @@ export default function PanierCave() {
   const [paniers, setPaniers] = useState<Panier[]>(lirePaniers)
   const [actifId, setActifId] = useState<string>(() => paniers[0].id)
   const [scan, setScan] = useState(false)
+  const [dernierScan, setDernierScan] = useState<string | null>(null)
   const [caisse, setCaisse] = useState(false)
   const [recherche, setRecherche] = useState('')
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
@@ -97,8 +98,17 @@ export default function PanierCave() {
       const ex = pa.lignes.find(l => l.code === code)
       return { ...pa, lignes: ex ? pa.lignes.map(l => l.code === code ? { ...l, qte: l.qte + 1 } : l) : [...pa.lignes, { code, qte: 1 }] }
     })
+    setDernierScan(code)
     flash('+1 ' + (p.num ? 'N° ' + p.num + ' · ' : '') + nomProduit(p), true)
     return true
+  }
+  // fixe la quantité d'un article (l'ajoute s'il avait été retiré entre-temps)
+  function definirQte(code: string, q: number) {
+    majPanier(pa => {
+      const ex = pa.lignes.some(l => l.code === code)
+      const lignes = ex ? pa.lignes.map(l => l.code === code ? { ...l, qte: q } : l) : q > 0 ? [...pa.lignes, { code, qte: q }] : pa.lignes
+      return { ...pa, lignes: lignes.filter(l => l.qte > 0) }
+    })
   }
   function fixerQte(code: string, q: number) {
     majPanier(pa => ({ ...pa, lignes: pa.lignes.map(l => l.code === code ? { ...l, qte: q } : l).filter(l => l.qte > 0) }))
@@ -235,19 +245,22 @@ export default function PanierCave() {
       <p className="text-xs text-encre/50">Les paniers en cours sont gardés sur ce téléphone. Chaque vente terminée est enregistrée à votre nom dans l'historique. Prix = prix des étiquettes (la caisse fait foi).</p>
       </>}
 
-      {scan && <Scanner fermer={() => setScan(false)} onCode={ajouter} message={message} />}
+      {scan && <Scanner fermer={() => { setScan(false); setDernierScan(null) }} onCode={ajouter} message={message}
+        courant={dernierScan ? { produit: produits.get(dernierScan), qte: actif.lignes.find(l => l.code === dernierScan)?.qte ?? 0 } : null}
+        onQte={q => dernierScan && definirQte(dernierScan, q)}
+        resume={{ articles: nbArticles, total }} />}
     </div>
   )
 }
 
 /* Quantité tapée au clavier : on peut écrire 12 directement au lieu d'appuyer 12 fois sur +. 0 = retirer. */
-function ChampQte({ valeur, onChange }: { valeur: number; onChange: (q: number) => void }) {
+function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange: (q: number) => void; grand?: boolean }) {
   const [txt, setTxt] = useState(String(valeur))
   useEffect(() => { setTxt(String(valeur)) }, [valeur])
   function valider() {
     const q = parseInt(txt, 10)
     if (isNaN(q) || q < 0) { setTxt(String(valeur)); return }
-    if (q === 0 && !confirm('Retirer cet article du panier ?')) { setTxt(String(valeur)); return }
+    if (q === 0 && valeur > 0 && !confirm('Retirer cet article du panier ?')) { setTxt(String(valeur)); return }
     if (q !== valeur) onChange(Math.min(q, 999))
   }
   return (
@@ -255,7 +268,7 @@ function ChampQte({ valeur, onChange }: { valeur: number; onChange: (q: number) 
       onChange={e => setTxt(e.target.value.replace(/\D/g, '').slice(0, 3))}
       onFocus={e => e.target.select()} onBlur={valider}
       onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-      className="w-11 h-8 rounded-lg border border-gray-300 text-center font-semibold focus:outline-none focus:ring-2 focus:ring-havane" style={{ fontSize: 16 }} />
+      className={`${grand ? 'w-20 h-12 text-2xl' : 'w-11 h-8'} rounded-lg border border-gray-300 text-center font-semibold focus:outline-none focus:ring-2 focus:ring-havane`} style={grand ? undefined : { fontSize: 16 }} />
   )
 }
 
@@ -266,7 +279,10 @@ function ChampQte({ valeur, onChange }: { valeur: number; onChange: (q: number) 
 type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string; format?: string }[]> }
 // Tous les types de codes-barres courants : les anciennes étiquettes du magasin ne sont pas forcément en EAN.
 const FORMATS_NATIFS = ['ean_13', 'upc_a', 'ean_8', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar']
-function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null }) {
+function Scanner({ fermer, onCode, message, courant, onQte, resume }: {
+  fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null
+  courant: { produit?: Produit; qte: number } | null; onQte: (q: number) => void; resume: { articles: number; total: number }
+}) {
   const video = useRef<HTMLVideoElement>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [piste, setPiste] = useState<MediaStreamTrack | null>(null)
@@ -342,13 +358,38 @@ function Scanner({ fermer, onCode, message }: { fermer: () => void; onCode: (c: 
           </button>
         )}
         {erreur && <p className="absolute inset-x-4 top-16 bg-white rounded-lg p-3 text-sm text-corail">{erreur}</p>}
-        {message && (
+        {message && (!message.ok || !courant) && (
           <p className={`absolute inset-x-4 bottom-4 rounded-lg p-3 text-sm font-medium text-white ${message.ok ? 'bg-green-700' : 'bg-corail'}`}>{message.texte}</p>
         )}
       </div>
-      <div className="p-4 bg-black" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
-        <p className="text-white/70 text-xs text-center mb-3">Tenez le téléphone à 10–15 cm, code-barres à plat dans le cadre. Chaque lecture ajoute 1 cigare.</p>
-        <button onClick={fermer} className="w-full rounded-xl bg-white text-havane font-semibold py-3.5">Terminé</button>
+      <div className="p-3 bg-black space-y-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
+        {courant ? (
+          // Dernier cigare scanné : on règle sa quantité ici, sans quitter le scanner. Le scan suivant passe au cigare d'après.
+          <div className="bg-white rounded-2xl p-3 space-y-2.5">
+            <div className="text-sm font-semibold truncate">
+              {courant.produit?.num && <span className="text-laiton">N° {courant.produit.num} · </span>}{nomProduit(courant.produit)}
+              <span className="text-encre/50 font-normal"> · {eur(courant.produit?.prix || 0)}</span>
+            </div>
+            <div className="flex items-center justify-center gap-3">
+              <button onClick={() => onQte(Math.max(0, courant.qte - 1))} className="w-12 h-12 rounded-full border-2 border-gray-300 text-2xl leading-none">−</button>
+              <ChampQte valeur={courant.qte} onChange={onQte} grand />
+              <button onClick={() => onQte(courant.qte + 1)} className="w-12 h-12 rounded-full border-2 border-gray-300 text-2xl leading-none">+</button>
+            </div>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 5, 10, 25].map(n => (
+                <button key={n} onClick={() => onQte(n)}
+                  className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${courant.qte === n ? 'bg-havane text-white border-havane' : 'border-gray-300'}`}>{n}</button>
+              ))}
+            </div>
+            {courant.qte === 0 && <p className="text-xs text-corail text-center">Retiré du panier</p>}
+          </div>
+        ) : (
+          <p className="text-white/70 text-xs text-center">Tenez le téléphone à 10–15 cm, code-barres à plat dans le cadre.</p>
+        )}
+        {courant && <p className="text-white/60 text-xs text-center">Réglez la quantité, puis scannez le cigare suivant.</p>}
+        <button onClick={fermer} className="w-full rounded-xl bg-white text-havane font-semibold py-3.5">
+          Terminé{resume.articles ? ` · ${resume.articles} article${resume.articles > 1 ? 's' : ''} · ${eur(resume.total)}` : ''}
+        </button>
       </div>
     </div>
   )
