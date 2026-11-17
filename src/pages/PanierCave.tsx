@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { eanBits, codeOk } from '../lib/etiquettes/dessin'
+import ChoixClientCollection from '../components/ChoixClientCollection'
+import { debloquerCartes, type ClientPanier } from '../lib/collectionClients'
 
 // Panier cave : on scanne les étiquettes (ou les boîtes) dans la cave à cigares,
 // puis à la caisse l'appli affiche les codes-barres un par un pour la douchette.
@@ -10,7 +12,9 @@ import { eanBits, codeOk } from '../lib/etiquettes/dessin'
 
 type Produit = { code: string; num: string | null; rayon: string; marque: string | null; modele: string | null; prix: number; a_verifier: boolean }
 type Ligne = { code: string; qte: number }
-type Panier = { id: string; nom: string; lignes: Ligne[]; cree: number }
+// client : compte de l'appli cigares (collection) ; ses cartes s'allument quand la vente est terminée.
+type Panier = { id: string; nom: string; lignes: Ligne[]; cree: number; client?: ClientPanier | null }
+export type Fin = { erreur: string | null; collection: string | null }
 
 const CLE = 'cd_paniers_cave'
 const eur = (p: number) => (Number(p) || 0).toFixed(2).replace('.', ',') + ' €'
@@ -57,6 +61,7 @@ export default function PanierCave() {
   const [recherche, setRecherche] = useState('')
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
   const [onglet, setOnglet] = useState<'panier' | 'historique'>('panier')
+  const [choixClient, setChoixClient] = useState(false)
   const { profile } = useAuth()
 
   useEffect(() => { try { localStorage.setItem(CLE, JSON.stringify(paniers)) } catch { /* rien */ } }, [paniers])
@@ -140,16 +145,27 @@ export default function PanierCave() {
     return out
   }, [recherche, produits])
 
-  async function enregistrer(mode: 'codes' | 'qr'): Promise<string | null> {
+  async function enregistrer(mode: 'codes' | 'qr'): Promise<Fin> {
     const lignes = actif.lignes.map(l => { const p = produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomProduit(p), prix: p?.prix || 0, qte: l.qte } })
     const { error } = await supabase.from('ventes_cave').insert({
-      vendu_par: profile?.id, client: actif.nom, lignes, nb_articles: nbArticles, total: Math.round(total * 100) / 100, mode,
+      vendu_par: profile?.id, client: actif.client?.nom ?? actif.nom, lignes, nb_articles: nbArticles, total: Math.round(total * 100) / 100, mode,
     })
-    return error ? error.message : null
+    let collection: string | null = null
+    if (actif.client) {
+      try {
+        const r = await debloquerCartes(actif.client.code, actif.lignes.map(l => l.code))
+        collection = r.cigares
+          ? `✨ Collection de ${actif.client.nom} : ${r.nouveaux ? `${r.nouveaux} nouvelle${r.nouveaux > 1 ? 's' : ''} carte${r.nouveaux > 1 ? 's' : ''}` : 'aucune nouvelle carte (déjà dans sa collection)'}.`
+          : `Collection de ${actif.client.nom} : aucun de ces articles n'a de carte.`
+      } catch (e) {
+        collection = `⚠️ Collection de ${actif.client.nom} non mise à jour : ${e instanceof Error ? e.message : String(e)}`
+      }
+    }
+    return { erreur: error ? error.message : null, collection }
   }
 
   if (caisse) return <ModeCaisse panier={actif} produits={produits} fermer={() => setCaisse(false)} enregistrer={enregistrer}
-    vider={() => { majPanier(p => ({ ...p, lignes: [] })); setCaisse(false) }} />
+    vider={() => { majPanier(p => ({ ...p, lignes: [], client: null })); setCaisse(false) }} />
 
   return (
     <div className="space-y-4">
@@ -185,6 +201,20 @@ export default function PanierCave() {
           <button onClick={renommer} className="font-semibold text-havane text-left">{actif.nom} ✏️</button>
           <button onClick={supprimerPanier} className="text-xs text-corail underline">Supprimer</button>
         </div>
+
+        {actif.client ? (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-laiton/10 px-3 py-2 text-sm">
+            <span className="min-w-0 truncate">👤 Collection : <b>{actif.client.nom}</b></span>
+            <span className="shrink-0 flex gap-3">
+              <button onClick={() => setChoixClient(true)} className="text-havane underline text-xs">Changer</button>
+              <button onClick={() => majPanier(p => ({ ...p, client: null }))} className="text-corail underline text-xs">Retirer</button>
+            </span>
+          </div>
+        ) : (
+          <button onClick={() => setChoixClient(true)} className="w-full rounded-lg border border-dashed border-laiton text-laiton text-sm font-medium py-2">
+            👤 Client (collection) : scanner sa carte ou le chercher
+          </button>
+        )}
 
         <button onClick={() => setScan(true)} disabled={loading}
           className="w-full rounded-xl bg-laiton text-white font-semibold py-4 text-base disabled:opacity-50">
@@ -244,6 +274,11 @@ export default function PanierCave() {
 
       <p className="text-xs text-encre/50">Les paniers en cours sont gardés sur ce téléphone. Chaque vente terminée est enregistrée à votre nom dans l'historique. Prix = prix des étiquettes (la caisse fait foi).</p>
       </>}
+
+      {choixClient && <ChoixClientCollection fermer={() => setChoixClient(false)} choisir={c => {
+        // Le panier prend le nom du client s'il avait encore un nom par défaut (« Client 2 »).
+        majPanier(p => ({ ...p, client: c, nom: /^Client \d+$/.test(p.nom) ? c.nom : p.nom })); setChoixClient(false)
+      }} />}
 
       {scan && <Scanner fermer={() => { setScan(false); setDernierScan(null) }} onCode={ajouter} message={message}
         courant={dernierScan ? { produit: produits.get(dernierScan), qte: actif.lignes.find(l => l.code === dernierScan)?.qte ?? 0 } : null}
@@ -462,11 +497,11 @@ const ASTUCE = 'Luminosité de l’écran au maximum · téléphone à plat, 10 
 
 /* ---------- Mode caisse ---------- */
 function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
-  panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void; enregistrer: (mode: 'codes' | 'qr') => Promise<string | null>
+  panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void; enregistrer: (mode: 'codes' | 'qr') => Promise<Fin>
 }) {
   const [i, setI] = useState(0)
   const [qr, setQr] = useState(false)
-  const [fin, setFin] = useState<null | { erreur: string | null }>(null)
+  const [fin, setFin] = useState<null | Fin>(null)
   const [enCours, setEnCours] = useState(false)
   const lignes = panier.lignes, l = lignes[Math.min(i, lignes.length - 1)], p = produits.get(l.code)
   const lisible = codeOk(l.code) && !p?.a_verifier
@@ -474,7 +509,7 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
   useEcranAllume()
 
   async function terminer(mode: 'codes' | 'qr') {
-    setEnCours(true); const err = await enregistrer(mode); setEnCours(false); setFin({ erreur: err })
+    setEnCours(true); const r = await enregistrer(mode); setEnCours(false); setFin(r)
   }
 
   if (fin) return (
@@ -485,6 +520,7 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
       {fin.erreur
         ? <p className="text-sm text-corail">⚠️ Vente non enregistrée dans l'historique : {fin.erreur}</p>
         : <p className="text-sm text-green-700">Vente enregistrée dans l'historique.</p>}
+      {fin.collection && <p className={`text-sm ${fin.collection.startsWith('⚠️') ? 'text-corail' : 'text-havane font-medium'}`}>{fin.collection}</p>}
       <button onClick={vider} className="w-full max-w-sm rounded-xl bg-havane text-white font-semibold py-4">Vider le panier</button>
       <button onClick={fermer} className="w-full max-w-sm rounded-xl border border-gray-300 font-semibold py-3.5">Garder le panier</button>
     </div>

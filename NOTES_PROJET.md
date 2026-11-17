@@ -71,6 +71,12 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - **Historique** (migration 0030, table `ventes_cave`) : chaque vente terminée est enregistrée (vendeur = compte connecté, client, détail des lignes figé, nb articles, total, mode codes/qr). Employé : voit ses ventes ; patrons : tout, totaux par vendeur, suppression. Filtres aujourd'hui / 7 jours / mois / tout.
 - Idée possible : demander à Bimedia un ticket en attente par API (sans scan en caisse).
 
+## Collection client (17 nov. 2026, branche `collection-client`)
+
+- Dans le Panier cave : bouton « 👤 Client (collection) » → scanner la carte client (QR `CDCLIENT:XXXXXXXX` affiché dans l'appli cigares, page « Ma carte ») ou chercher par nom / téléphone / e-mail. Le panier prend le nom du client.
+- Vente terminée → les cigares du panier allument leurs cartes dans la collection du client (appli cigares, table `shop_unlocks`), sans prix ni quantité. Message sur l'écran de fin.
+- Passe par le relais `collection-relais` (fonction Supabase de l'appli cigares) : il vérifie le jeton de l'appli interne (compte avec fiche `profiles`), puis agit avec la clé serveur. Aucune clé secrète dans ce dépôt. Code : `src/lib/collectionClients.ts`, `src/components/ChoixClientCollection.tsx`.
+
 ## Points de vigilance connus
 
 - Avertissements de sécurité Supabase **antérieurs** aux étiquettes : fonctions `SECURITY DEFINER` appelables par API (`handle_new_user`, `is_patron`, `marquer_commande_recue`, `notifier_push_trigger`), search_path non fixé sur `notifier_push_trigger`, protection mots de passe compromis désactivée. À traiter un jour (non urgent, rien d'exposé de grave).

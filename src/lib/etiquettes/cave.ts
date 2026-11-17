@@ -3,8 +3,8 @@
 // La clé ci-dessous est la clé publique de l'appli cigares (elle est déjà visible dans son site).
 import type { Article } from './dessin'
 
-const CAVE_URL = (import.meta.env?.VITE_CAVE_URL as string | undefined) || 'https://ralnsnfdtkmqtvfubzml.supabase.co'
-const CAVE_KEY = (import.meta.env?.VITE_CAVE_KEY as string | undefined) || 'sb_publishable_kzaIuXasHPQIWT1n0cGkGA_9ooUdpy9'
+export const CAVE_URL = (import.meta.env?.VITE_CAVE_URL as string | undefined) || 'https://ralnsnfdtkmqtvfubzml.supabase.co'
+export const CAVE_KEY = (import.meta.env?.VITE_CAVE_KEY as string | undefined) || 'sb_publishable_kzaIuXasHPQIWT1n0cGkGA_9ooUdpy9'
 
 export type InfoCave = {
   barcode: string
