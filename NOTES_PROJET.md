@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 17 novembre 2026.
+> Dernière mise à jour : 19 novembre 2026.
 
 ## Où sont les choses
 
@@ -97,6 +97,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
   2. appli cigares (catalogue clients, projet `ralnsnfdtkmqtvfubzml`) : chercher d'abord la fiche existante dans `cigars` (≈ 3 300 fiches, souvent archivées), sinon la créer ; relier le code-barres dans `cigar_barcodes` (barcode, cigar_id, num) ; mettre prix, `in_stock = true`, `is_archived = false`, `is_catalog_visible = true`. Ne jamais laisser « à vérifier » visible des clients (mettre vide).
 - Toujours la règle « pas sûr = vide ». Ne toucher à rien d'autre dans l'appli cigares.
 - Fait le 12 nov. : Esteli Club N°1 (463), N°5 (464), N°6 (466) ; n° 312 ajouté au code-barres du Cumpay Volcán Maduro.
+- Fait le 19 nov. : Davidoff Year of Sheep (édition 2027, pyramide 171 × 52) — n° 467, code 3100000025663, 62 €. Origine Rép. dom., compo Équateur / Équateur / Rép. dom. (1 vendeur + cohérent avec Year of the Horse 2026), force laissée vide, temps ≈ 75 min. Appli cigares : fiche existante « Year of the Sheep » complétée (était vide) + code-barres relié.
 
 ## Hors appli (fichiers faits par Claude)
 
