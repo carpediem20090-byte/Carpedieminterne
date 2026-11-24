@@ -77,7 +77,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Vente terminée → les cigares du panier allument leurs cartes dans la collection du client (appli cigares, table `shop_unlocks`), sans prix ni quantité. Message sur l'écran de fin.
 - Passe par le relais `collection-relais` (fonction Supabase de l'appli cigares) : il vérifie le jeton de l'appli interne (compte avec fiche `profiles`), puis agit avec la clé serveur. Aucune clé secrète dans ce dépôt. Code : `src/lib/collectionClients.ts`, `src/components/ChoixClientCollection.tsx`.
 
-## Marchés (24 nov. 2026, branche `marche`)
+## Marchés (24 nov. 2026, en production)
 
 - Pour la patronne qui vend sur des marchés (souvent plusieurs jours). Page `/marche` (menu « Plus » → « 🧺 Marchés »). Code : `src/pages/Marche.tsx` (réutilise scanner, quantité, QR du Panier cave, exportés depuis `PanierCave.tsx`).
 - Migration 0031 : table `marches` (nom, créé par, passé en caisse le / par) ; `ventes_cave` gagne `marche_id` et `paiement` (especes / cb / autre), mode `marche`. Toute l'équipe voit les ventes d'un marché ; le vendeur (ou un patron) peut annuler une vente tant que le marché n'est pas passé en caisse.
