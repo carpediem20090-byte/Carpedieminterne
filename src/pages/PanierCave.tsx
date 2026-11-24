@@ -10,18 +10,18 @@ import { debloquerCartes, type ClientPanier } from '../lib/collectionClients'
 // Les paniers en cours sont gardés sur le téléphone ; chaque vente terminée est enregistrée dans `ventes_cave`
 // (qui a vendu quoi), visible dans l'onglet Historique.
 
-type Produit = { code: string; num: string | null; rayon: string; marque: string | null; modele: string | null; prix: number; a_verifier: boolean }
+export type Produit = { code: string; num: string | null; rayon: string; marque: string | null; modele: string | null; prix: number; a_verifier: boolean }
 type Ligne = { code: string; qte: number }
 // client : compte de l'appli cigares (collection) ; ses cartes s'allument quand la vente est terminée.
-type Panier = { id: string; nom: string; lignes: Ligne[]; cree: number; client?: ClientPanier | null }
+export type Panier = { id: string; nom: string; lignes: Ligne[]; cree: number; client?: ClientPanier | null }
 export type Fin = { erreur: string | null; collection: string | null }
 
 const CLE = 'cd_paniers_cave'
-const eur = (p: number) => (Number(p) || 0).toFixed(2).replace('.', ',') + ' €'
+export const eur = (p: number) => (Number(p) || 0).toFixed(2).replace('.', ',') + ' €'
 const sansAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
-const norm = (c: string) => { c = String(c || '').replace(/\D/g, ''); return c.length === 12 ? '0' + c : c }
+export const norm = (c: string) => { c = String(c || '').replace(/\D/g, ''); return c.length === 12 ? '0' + c : c }
 // UPC-E (8 chiffres, petits codes « compressés ») → UPC-A (12 chiffres)
-function upcEversA(e: string): string | null {
+export function upcEversA(e: string): string | null {
   if (!/^[01]\d{7}$/.test(e)) return null
   const [ns, d, ck] = [e[0], e.slice(1, 7), e[7]], x = d[5]
   const corps = x <= '2' ? d.slice(0, 2) + x + '0000' + d.slice(2, 5)
@@ -30,8 +30,8 @@ function upcEversA(e: string): string | null {
     : d.slice(0, 5) + '0000' + x
   return ns + corps + ck
 }
-const sansZeros = (c: string) => c.replace(/^0+/, '')
-const nomProduit = (p?: Produit) => p ? [p.marque, p.modele].filter(Boolean).join(' ') || 'Article' : 'Article inconnu'
+export const sansZeros = (c: string) => c.replace(/^0+/, '')
+export const nomProduit = (p?: Produit) => p ? [p.marque, p.modele].filter(Boolean).join(' ') || 'Article' : 'Article inconnu'
 const nouveau = (n: number): Panier => ({ id: crypto.randomUUID(), nom: 'Client ' + n, lignes: [], cree: Date.now() })
 
 function lirePaniers(): Panier[] {
@@ -39,7 +39,7 @@ function lirePaniers(): Panier[] {
   return [nouveau(1)]
 }
 
-function bip() {
+export function bip() {
   try { navigator.vibrate?.(80) } catch { /* rien */ }
   try {
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
@@ -289,7 +289,7 @@ export default function PanierCave() {
 }
 
 /* Quantité tapée au clavier : on peut écrire 12 directement au lieu d'appuyer 12 fois sur +. 0 = retirer. */
-function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange: (q: number) => void; grand?: boolean }) {
+export function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange: (q: number) => void; grand?: boolean }) {
   const [txt, setTxt] = useState(String(valeur))
   useEffect(() => { setTxt(String(valeur)) }, [valeur])
   function valider() {
@@ -314,7 +314,7 @@ function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange: (q: n
 type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string; format?: string }[]> }
 // Tous les types de codes-barres courants : les anciennes étiquettes du magasin ne sont pas forcément en EAN.
 const FORMATS_NATIFS = ['ean_13', 'upc_a', 'ean_8', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar']
-function Scanner({ fermer, onCode, message, courant, onQte, resume }: {
+export function Scanner({ fermer, onCode, message, courant, onQte, resume }: {
   fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null
   courant: { produit?: Produit; qte: number } | null; onQte: (q: number) => void; resume: { articles: number; total: number }
 }) {
@@ -484,7 +484,7 @@ function QrCanvas({ texte }: { texte: string }) {
   return <canvas ref={ref} className="block mx-auto" style={{ imageRendering: 'pixelated' }} />
 }
 
-function useEcranAllume() {
+export function useEcranAllume() {
   useEffect(() => {
     let verrou: { release: () => Promise<void> } | null = null
     const wl = (navigator as unknown as { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock
@@ -578,7 +578,7 @@ const SEPARATEUR = '\r'
 const CHOIX_QR = [-1, 10, 20, 30, 0] as const // -1 = auto, 0 = tout
 const MODULE_MIN = 5 // taille mini d'une case du QR, en px CSS (≈ 0,8 mm)
 const CLE_QR = 'cd_panier_par_qr'
-function QrUnique({ panier, produits, retour, fini, total, enCours }: {
+export function QrUnique({ panier, produits, retour, fini, total, enCours }: {
   panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number; enCours: boolean
 }) {
   const [page, setPage] = useState(0)

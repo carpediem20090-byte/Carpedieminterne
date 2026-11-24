@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 19 novembre 2026.
+> Dernière mise à jour : 24 novembre 2026.
 
 ## Où sont les choses
 
@@ -76,6 +76,15 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Dans le Panier cave : bouton « 👤 Client (collection) » → scanner la carte client (QR `CDCLIENT:XXXXXXXX` affiché dans l'appli cigares, page « Ma carte ») ou chercher par nom / téléphone / e-mail. Le panier prend le nom du client.
 - Vente terminée → les cigares du panier allument leurs cartes dans la collection du client (appli cigares, table `shop_unlocks`), sans prix ni quantité. Message sur l'écran de fin.
 - Passe par le relais `collection-relais` (fonction Supabase de l'appli cigares) : il vérifie le jeton de l'appli interne (compte avec fiche `profiles`), puis agit avec la clé serveur. Aucune clé secrète dans ce dépôt. Code : `src/lib/collectionClients.ts`, `src/components/ChoixClientCollection.tsx`.
+
+## Marchés (24 nov. 2026, branche `marche`)
+
+- Pour la patronne qui vend sur des marchés (souvent plusieurs jours). Page `/marche` (menu « Plus » → « 🧺 Marchés »). Code : `src/pages/Marche.tsx` (réutilise scanner, quantité, QR du Panier cave, exportés depuis `PanierCave.tsx`).
+- Migration 0031 : table `marches` (nom, créé par, passé en caisse le / par) ; `ventes_cave` gagne `marche_id` et `paiement` (especes / cb / autre), mode `marche`. Toute l'équipe voit les ventes d'un marché ; le vendeur (ou un patron) peut annuler une vente tant que le marché n'est pas passé en caisse.
+- Sur place : « Nouvelle vente » → scan (quantité réglable dans le scanner) ou recherche → « Encaisser » : total en grand, choix Espèces / CB / Autre, calcul de la monnaie à rendre → vente enregistrée.
+- Sans réseau : la vente est gardée sur le téléphone (`cd_marche_attente`) et envoyée dès que ça capte (toutes les 30 s et au retour du réseau) ; les articles sont copiés sur le téléphone (`cd_produits_cache`). Limite : l'appli doit déjà être ouverte (pas de mode hors ligne complet ; créer le marché demande du réseau).
+- Écran du marché : total, puis **jour par jour** (nb ventes, articles, total, espèces / CB), détail des ventes.
+- Retour au tabac : « Passer le marché en caisse » → récap par jour + articles regroupés → QR codes (même système que le Panier cave, découpage Auto) → « Terminé » marque le marché « passé en caisse » (plus de nouvelles ventes ni d'annulation).
 
 ## Points de vigilance connus
 
