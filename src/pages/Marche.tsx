@@ -12,7 +12,7 @@ import {
 // téléphone et envoyée dès que la connexion revient. Au retour au tabac, « Passer en caisse » regroupe tout
 // le marché en QR codes à biper à la douchette, puis le marché est marqué « passé en caisse ».
 
-type Marche = { id: string; nom: string; cree_par: string | null; cree_le: string; passe_en_caisse_le: string | null; profiles?: { full_name: string } | null }
+type Marche = { id: string; nom: string; cree_par: string | null; cree_le: string; passe_en_caisse_le: string | null; fond_caisse: number; comptage: number | null; comptage_le: string | null; profiles?: { full_name: string } | null }
 type LigneVente = { code: string; num: string | null; nom: string; prix: number; qte: number }
 type Paiement = 'especes' | 'cb' | 'autre'
 type VenteMarche = {
@@ -27,6 +27,11 @@ const lireJson = <T,>(cle: string, defaut: T): T => { try { const v = localStora
 const ecrireJson = (cle: string, v: unknown) => { try { localStorage.setItem(cle, JSON.stringify(v)) } catch { /* rien */ } }
 const jourDe = (iso: string) => { const d = new Date(iso); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') }
 const nomJour = (j: string) => new Date(j + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+const lireMontant = (txt: string | null): number | null => {
+  if (txt === null) return null
+  const n = Number(txt.replace(/\s/g, '').replace(',', '.').replace('€', ''))
+  return isNaN(n) || n < 0 ? NaN : Math.round(n * 100) / 100
+}
 const heure = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 /* ---------- Articles (avec copie sur le téléphone pour marcher sans réseau) ---------- */
@@ -117,7 +122,10 @@ export default function MarchePage() {
     const defaut = 'Marché du ' + new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })
     const nom = prompt('Nom du marché :', defaut)
     if (!nom || !nom.trim()) return
-    const { data, error } = await supabase.from('marches').insert({ nom: nom.trim(), cree_par: profile?.id }).select().single()
+    const fond = lireMontant(prompt('Fond de caisse en espèces emporté (en €) :', '0'))
+    if (fond === null) return
+    if (isNaN(fond)) { alert('Montant du fond de caisse invalide.'); return }
+    const { data, error } = await supabase.from('marches').insert({ nom: nom.trim(), cree_par: profile?.id, fond_caisse: fond }).select().single()
     if (error) { alert('Création impossible (il faut du réseau pour créer le marché) : ' + error.message); return }
     setParams({ id: (data as Marche).id })
   }
@@ -245,6 +253,9 @@ function DetailMarche({ marche, prod, enAttente, synchroniser, retour, recharger
         {enAttente > 0 && <p className="text-xs text-laiton">📶 {enAttente} vente{enAttente > 1 ? 's' : ''} pas encore envoyée{enAttente > 1 ? 's' : ''} (pas de réseau) — gardée{enAttente > 1 ? 's' : ''} sur le téléphone.</p>}
       </div>
 
+      <CaisseEspeces marche={marche} especes={ventes.filter(v => v.paiement === 'especes').reduce((s, v) => s + Number(v.total), 0)}
+        cb={ventes.filter(v => v.paiement === 'cb').reduce((s, v) => s + Number(v.total), 0)} recharger={recharger} />
+
       {!clos && (
         <button onClick={() => setVente(true)} disabled={prod.loading && !prod.liste.length}
           className="w-full rounded-xl bg-laiton text-white font-semibold py-4 text-base disabled:opacity-50">
@@ -315,7 +326,7 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
   const [dernier, setDernier] = useState<string | null>(null)
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
   const [recherche, setRecherche] = useState('')
-  const [paiement, setPaiement] = useState<Paiement | null>(null)
+  const [paiement, setPaiement] = useState<Paiement | null>('especes') // espèces par défaut sur un marché
   const [recu, setRecu] = useState('')
   const [encaisser, setEncaisser] = useState(false)
   const [enCours, setEnCours] = useState(false)
@@ -529,6 +540,49 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
 
       <button onClick={() => setQr(true)} className="w-full rounded-xl bg-havane text-white font-semibold py-4 text-base">▦ Afficher les QR codes pour la caisse</button>
       <p className="text-xs text-encre/50 text-center">Bipez chaque QR à la douchette, puis « Terminé » : le marché sera marqué « passé en caisse » pour ne pas le biper deux fois.</p>
+    </div>
+  )
+}
+
+/* ---------- Caisse espèces : fond de caisse, espèces attendues, comptage ---------- */
+function CaisseEspeces({ marche, especes, cb, recharger }: { marche: Marche; especes: number; cb: number; recharger: () => void }) {
+  const fond = Number(marche.fond_caisse) || 0
+  const attendu = Math.round((fond + especes) * 100) / 100
+  const ecart = marche.comptage === null ? null : Math.round((Number(marche.comptage) - attendu) * 100) / 100
+
+  async function maj(champs: Record<string, unknown>) {
+    const { error } = await supabase.from('marches').update(champs).eq('id', marche.id)
+    if (error) alert('Impossible (réseau ?) : ' + error.message); else recharger()
+  }
+  function modifierFond() {
+    const f = lireMontant(prompt('Fond de caisse en espèces emporté (en €) :', String(fond).replace('.', ',')))
+    if (f === null) return
+    if (isNaN(f)) { alert('Montant invalide.'); return }
+    maj({ fond_caisse: f })
+  }
+  function compter() {
+    const c = lireMontant(prompt('Combien y a-t-il en espèces dans la caisse (billets + pièces, fond compris) ?', ''))
+    if (c === null) return
+    if (isNaN(c)) { alert('Montant invalide.'); return }
+    maj({ comptage: c, comptage_le: new Date().toISOString() })
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm p-4 space-y-1.5 text-sm">
+      <div className="font-semibold text-havane mb-1">💶 Caisse espèces</div>
+      <div className="flex justify-between"><button onClick={modifierFond} className="underline decoration-dotted">Fond de caisse ✏️</button><span>{eur(fond)}</span></div>
+      <div className="flex justify-between"><span>+ Ventes en espèces</span><span>{eur(especes)}</span></div>
+      <div className="flex justify-between border-t pt-1.5 font-semibold"><span>= Espèces attendues</span><span className="text-havane">{eur(attendu)}</span></div>
+      {cb > 0 && <div className="flex justify-between text-encre/60"><span>Ventes CB (à part)</span><span>{eur(cb)}</span></div>}
+      {marche.comptage !== null && ecart !== null && (
+        <div className={`rounded-lg p-2 mt-1 ${ecart === 0 ? 'bg-green-50 text-green-800' : 'bg-corail/10 text-corail'}`}>
+          Compté : <b>{eur(Number(marche.comptage))}</b>
+          {marche.comptage_le && <span className="text-xs"> (le {new Date(marche.comptage_le).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })})</span>}
+          <div className="font-semibold">{ecart === 0 ? '✓ La caisse est juste' : ecart > 0 ? 'Il y a ' + eur(ecart) + ' en trop' : 'Il manque ' + eur(-ecart)}</div>
+        </div>
+      )}
+      <button onClick={compter} className="w-full mt-1 rounded-lg border border-havane text-havane font-semibold py-2">🧮 {marche.comptage === null ? 'Compter la caisse' : 'Recompter la caisse'}</button>
+      <p className="text-xs text-encre/50">Les ventes sans moyen de paiement choisi ne sont pas comptées dans les espèces.</p>
     </div>
   )
 }

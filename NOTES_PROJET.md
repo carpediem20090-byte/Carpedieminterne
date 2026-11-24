@@ -84,6 +84,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Sur place : « Nouvelle vente » → scan (quantité réglable dans le scanner) ou recherche → « Encaisser » : total en grand, choix Espèces / CB / Autre, calcul de la monnaie à rendre → vente enregistrée.
 - Sans réseau : la vente est gardée sur le téléphone (`cd_marche_attente`) et envoyée dès que ça capte (toutes les 30 s et au retour du réseau) ; les articles sont copiés sur le téléphone (`cd_produits_cache`). Limite : l'appli doit déjà être ouverte (pas de mode hors ligne complet ; créer le marché demande du réseau).
 - Écran du marché : total, puis **jour par jour** (nb ventes, articles, total, espèces / CB), détail des ventes.
+- **Fond de caisse** (migration 0032 : `marches.fond_caisse`, `comptage`, `comptage_le`) : demandé à la création du marché, modifiable. Carte « 💶 Caisse espèces » : fond + ventes en espèces = espèces attendues ; ventes CB à part ; bouton « Compter la caisse » → écart (juste / en trop / il manque). Paiement « Espèces » présélectionné à l'encaissement.
 - Retour au tabac : « Passer le marché en caisse » → récap par jour + articles regroupés → QR codes (même système que le Panier cave, découpage Auto) → « Terminé » marque le marché « passé en caisse » (plus de nouvelles ventes ni d'annulation).
 
 ## Points de vigilance connus
