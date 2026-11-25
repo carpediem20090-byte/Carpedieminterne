@@ -115,6 +115,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
   - N° en double réglés le 25 nov. par le patron : Black Label NBK Corona Larga → n° 370 ; A Eternita Noir (778) et Plasencia Azacualpa (521) supprimés (plus vendus). Rayon Cigares = 756 cigares, plus aucun n° en double.
   - Legami : 403 articles ajoutés (rayon « Cadeaux & divers », marque Legami) ; 40 existaient déjà, prix identiques.
   - Appli cigares (catalogue clients) **non mise à jour** pour ces 162 cigares.
+  - 3e liste (25 nov., groupe CADEAU, familles STC 213 + SANTONS 19) : 222 articles ajoutés (rayon « Cadeaux & divers », nom = désignation caisse, santons nommés « Santon A / AA / D… ») ; 1 existait déjà (Boxer Noël). **9 codes à 14 chiffres non importables** (la table n'accepte que 12-13 chiffres) : 8 santons `20080730…` (doublons des santons en 3100000000…, prix différents) et `33609810122406` « Boxer rugby M » (sûrement une faute de frappe dans Bimedia : un 3 en trop).
 - Fait le 19 nov. : Davidoff Year of Sheep (édition 2027, pyramide 171 × 52) — n° 467, code 3100000025663, 62 €. Origine Rép. dom., compo Équateur / Équateur / Rép. dom. (1 vendeur + cohérent avec Year of the Horse 2026), force laissée vide, temps ≈ 75 min. Appli cigares : fiche existante « Year of the Sheep » complétée (était vide) + code-barres relié.
 
 ## Hors appli (fichiers faits par Claude)
