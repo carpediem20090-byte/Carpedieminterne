@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 24 novembre 2026.
+> Dernière mise à jour : 25 novembre 2026.
 
 ## Où sont les choses
 
@@ -67,6 +67,8 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - iPhone : QR toujours illisible le 16 nov. au soir même en Auto. Correctif tenté (« affichage v4 ») : taille des cases en multiple de la densité d’écran (`tailleCase`) pour que Safari n’agrandisse/lisse pas l’image. Petit texte « affichage v4 · densité X » sous le QR pour vérifier la version. À confirmer.
 - Anciennes étiquettes du magasin (même numéro, autre type de code-barres) non lues au scan téléphone → le scan accepte maintenant aussi UPC-E, Code 128, Code 39, Code 93, ITF, Codabar ; recherche de l’article tolérante (UPC-E converti en UPC-A, zéros de tête ignorés). Le message « Code inconnu » affiche le format lu entre crochets pour diagnostiquer.
 - Dans le scanner (17 nov.) : après chaque lecture, un panneau en bas montre le cigare scanné avec − / champ / + et des raccourcis 1 · 2 · 3 · 5 · 10 · 25 ; on règle la quantité puis on scanne le suivant sans quitter la caméra. Le bouton « Terminé » affiche le nombre d’articles et le total.
+- (25 nov.) Saisie manuelle **dans le scanner** : champ « Le scan ne passe pas ? Tapez le n° ou le nom » en bas de la caméra (4 résultats, n° exacts d'abord, Entrée si un seul résultat) ; même chose dans le scanner des Marchés. Fonction commune `chercherProduits` (sans doublons).
+- (25 nov.) Fin de passage en caisse : dès que « Terminé » est validé (codes ou QR), la vente part dans l'historique, **le panier est supprimé** et on revient sur un panier vide pour le client suivant, avec un bandeau « ✅ Vente enregistrée · Un problème ? Voir l'historique ». Si l'enregistrement échoue : écran d'erreur avec Réessayer / Vider sans enregistrer / Garder le panier.
 - Quantité modifiable au clavier dans le panier (champ numérique, 0 = retirer après confirmation), en plus des boutons − / +.
 - **Historique** (migration 0030, table `ventes_cave`) : chaque vente terminée est enregistrée (vendeur = compte connecté, client, détail des lignes figé, nb articles, total, mode codes/qr). Employé : voit ses ventes ; patrons : tout, totaux par vendeur, suppression. Filtres aujourd'hui / 7 jours / mois / tout.
 - Idée possible : demander à Bimedia un ticket en attente par API (sans scan en caisse).

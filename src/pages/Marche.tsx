@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import {
-  type Produit, type Panier, eur, norm, upcEversA, sansZeros, nomProduit, ChampQte, Scanner, QrUnique,
+  type Produit, type Panier, eur, norm, upcEversA, sansZeros, nomProduit, ChampQte, Scanner, QrUnique, chercherProduits,
 } from './PanierCave'
 
 // Ventes sur les marchés.
@@ -461,7 +461,7 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
 
       {scan && <Scanner fermer={() => { setScan(false); setDernier(null) }} onCode={ajouter} message={message}
         courant={dernier ? { produit: prod.produits.get(dernier), qte: lignes.find(l => l.code === dernier)?.qte ?? 0 } : null}
-        onQte={q => dernier && definir(dernier, q)} resume={{ articles: nb, total }} />}
+        onQte={q => dernier && definir(dernier, q)} resume={{ articles: nb, total }} chercher={t => chercherProduits(prod.liste, t, 4)} />}
     </div>
   )
 }

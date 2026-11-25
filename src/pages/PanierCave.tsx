@@ -18,7 +18,7 @@ export type Fin = { erreur: string | null; collection: string | null }
 
 const CLE = 'cd_paniers_cave'
 export const eur = (p: number) => (Number(p) || 0).toFixed(2).replace('.', ',') + ' €'
-const sansAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+export const sansAccents = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 export const norm = (c: string) => { c = String(c || '').replace(/\D/g, ''); return c.length === 12 ? '0' + c : c }
 // UPC-E (8 chiffres, petits codes « compressés ») → UPC-A (12 chiffres)
 export function upcEversA(e: string): string | null {
@@ -31,6 +31,21 @@ export function upcEversA(e: string): string | null {
   return ns + corps + ck
 }
 export const sansZeros = (c: string) => c.replace(/^0+/, '')
+// Recherche par n°, marque, modèle ou code (chaque article une seule fois)
+export function chercherProduits(produits: Iterable<Produit>, texte: string, max = 8): Produit[] {
+  const q = sansAccents(texte.trim()); if (!q) return []
+  const mots = q.split(/\s+/), vus = new Set<string>(), out: Produit[] = []
+  // un n° tapé seul (ex. « 467 ») : les n° exacts d'abord
+  const exacts: Produit[] = [], autres: Produit[] = []
+  for (const p of produits) {
+    if (vus.has(p.code)) continue
+    vus.add(p.code)
+    const hay = sansAccents([p.num, p.marque, p.modele, p.code].join(' '))
+    if (mots.every(m => hay.includes(m))) (p.num && sansAccents(p.num) === q ? exacts : autres).push(p)
+  }
+  for (const p of [...exacts, ...autres]) { out.push(p); if (out.length >= max) break }
+  return out
+}
 export const nomProduit = (p?: Produit) => p ? [p.marque, p.modele].filter(Boolean).join(' ') || 'Article' : 'Article inconnu'
 const nouveau = (n: number): Panier => ({ id: crypto.randomUUID(), nom: 'Client ' + n, lignes: [], cree: Date.now() })
 
@@ -61,6 +76,7 @@ export default function PanierCave() {
   const [recherche, setRecherche] = useState('')
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
   const [onglet, setOnglet] = useState<'panier' | 'historique'>('panier')
+  const [derniereVente, setDerniereVente] = useState<{ resume: string; collection: string | null } | null>(null)
   const [choixClient, setChoixClient] = useState(false)
   const { profile } = useAuth()
 
@@ -135,15 +151,7 @@ export default function PanierCave() {
     if (n && n.trim()) majPanier(p => ({ ...p, nom: n.trim() }))
   }
 
-  const resultats = useMemo(() => {
-    const q = sansAccents(recherche.trim()); if (!q) return []
-    const out: Produit[] = []
-    for (const p of produits.values()) {
-      const hay = sansAccents([p.num, p.marque, p.modele, p.code].join(' '))
-      if (q.split(/\s+/).every(m => hay.includes(m))) { out.push(p); if (out.length >= 8) break }
-    }
-    return out
-  }, [recherche, produits])
+  const resultats = useMemo(() => chercherProduits(produits.values(), recherche), [recherche, produits])
 
   async function enregistrer(mode: 'codes' | 'qr'): Promise<Fin> {
     const lignes = actif.lignes.map(l => { const p = produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomProduit(p), prix: p?.prix || 0, qte: l.qte } })
@@ -164,7 +172,21 @@ export default function PanierCave() {
     return { erreur: error ? error.message : null, collection }
   }
 
+  // Vente passée en caisse et enregistrée : on retire ce panier, on repart sur un panier vide (client suivant)
+  function venteTerminee(r: Fin) {
+    const id = actif.id, resume = `${actif.client?.nom ?? actif.nom} · ${nbArticles} article${nbArticles > 1 ? 's' : ''} · ${eur(total)}`
+    setPaniers(ps => {
+      const reste = ps.filter(p => p.id !== id)
+      const liste = reste.length ? reste : [nouveau(1)]
+      setActifId(liste[0].id)
+      return liste
+    })
+    setCaisse(false); setOnglet('panier'); setRecherche('')
+    setDerniereVente({ resume, collection: r.collection })
+  }
+
   if (caisse) return <ModeCaisse panier={actif} produits={produits} fermer={() => setCaisse(false)} enregistrer={enregistrer}
+    terminee={venteTerminee}
     vider={() => { majPanier(p => ({ ...p, lignes: [], client: null })); setCaisse(false) }} />
 
   return (
@@ -184,6 +206,18 @@ export default function PanierCave() {
 
       {onglet === 'historique' ? <Historique /> : <>
       {erreur && <p className="text-sm text-corail">{erreur}</p>}
+
+      {derniereVente && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-sm space-y-1">
+          <div className="flex justify-between gap-2">
+            <span className="font-semibold text-green-800">✅ Vente enregistrée</span>
+            <button onClick={() => setDerniereVente(null)} className="text-encre/40" aria-label="Fermer">✕</button>
+          </div>
+          <div className="text-encre/70">{derniereVente.resume}</div>
+          {derniereVente.collection && <div className={derniereVente.collection.startsWith('⚠️') ? 'text-corail' : 'text-havane'}>{derniereVente.collection}</div>}
+          <button onClick={() => { setDerniereVente(null); setOnglet('historique') }} className="text-havane underline">Un problème ? Voir l'historique</button>
+        </div>
+      )}
 
       {/* Paniers en cours */}
       <div className="flex gap-2 overflow-x-auto pb-1">
@@ -280,7 +314,7 @@ export default function PanierCave() {
         majPanier(p => ({ ...p, client: c, nom: /^Client \d+$/.test(p.nom) ? c.nom : p.nom })); setChoixClient(false)
       }} />}
 
-      {scan && <Scanner fermer={() => { setScan(false); setDernierScan(null) }} onCode={ajouter} message={message}
+      {scan && <Scanner fermer={() => { setScan(false); setDernierScan(null) }} onCode={ajouter} message={message} chercher={t => chercherProduits(produits.values(), t, 4)}
         courant={dernierScan ? { produit: produits.get(dernierScan), qte: actif.lignes.find(l => l.code === dernierScan)?.qte ?? 0 } : null}
         onQte={q => dernierScan && definirQte(dernierScan, q)}
         resume={{ articles: nbArticles, total }} />}
@@ -314,10 +348,15 @@ export function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange
 type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string; format?: string }[]> }
 // Tous les types de codes-barres courants : les anciennes étiquettes du magasin ne sont pas forcément en EAN.
 const FORMATS_NATIFS = ['ean_13', 'upc_a', 'ean_8', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar']
-export function Scanner({ fermer, onCode, message, courant, onQte, resume }: {
+export function Scanner({ fermer, onCode, message, courant, onQte, resume, chercher }: {
   fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null
   courant: { produit?: Produit; qte: number } | null; onQte: (q: number) => void; resume: { articles: number; total: number }
+  chercher?: (texte: string) => Produit[]
 }) {
+  // saisie à la main quand le code-barres ne passe pas (n° ou nom), sans quitter le scanner
+  const [saisie, setSaisie] = useState('')
+  const trouves = chercher && saisie.trim() ? chercher(saisie).slice(0, 4) : []
+  function choisir(p: Produit) { if (cb.current(p.code)) bip(); setSaisie(''); (document.activeElement as HTMLElement | null)?.blur() }
   const video = useRef<HTMLVideoElement>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [piste, setPiste] = useState<MediaStreamTrack | null>(null)
@@ -422,6 +461,23 @@ export function Scanner({ fermer, onCode, message, courant, onQte, resume }: {
           <p className="text-white/70 text-xs text-center">Tenez le téléphone à 10–15 cm, code-barres à plat dans le cadre.</p>
         )}
         {courant && <p className="text-white/60 text-xs text-center">Réglez la quantité, puis scannez le cigare suivant.</p>}
+        {chercher && (
+          <div className="space-y-1.5">
+            {trouves.length > 0 && (
+              <div className="bg-white rounded-xl divide-y overflow-hidden">
+                {trouves.map(p => (
+                  <button key={p.code} onClick={() => choisir(p)} className="w-full text-left px-3 py-2.5 text-sm flex justify-between gap-2">
+                    <span className="truncate">{p.num && <b>N° {p.num} · </b>}{nomProduit(p)}</span><span className="shrink-0">{eur(p.prix)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {saisie.trim() && trouves.length === 0 && <p className="text-xs text-white/70 text-center">Aucun article trouvé.</p>}
+            <input value={saisie} onChange={e => setSaisie(e.target.value)} placeholder="⌨️ Le scan ne passe pas ? Tapez le n° ou le nom"
+              className="w-full rounded-xl bg-white/95 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-laiton" style={{ fontSize: 16 }}
+              onKeyDown={e => { if (e.key === 'Enter' && trouves.length === 1) choisir(trouves[0]) }} />
+          </div>
+        )}
         <button onClick={fermer} className="w-full rounded-xl bg-white text-havane font-semibold py-3.5">
           Terminé{resume.articles ? ` · ${resume.articles} article${resume.articles > 1 ? 's' : ''} · ${eur(resume.total)}` : ''}
         </button>
@@ -496,8 +552,9 @@ export function useEcranAllume() {
 const ASTUCE = 'Luminosité de l’écran au maximum · téléphone à plat, 10 à 15 cm sous la douchette'
 
 /* ---------- Mode caisse ---------- */
-function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
+function ModeCaisse({ panier, produits, fermer, vider, enregistrer, terminee }: {
   panier: Panier; produits: Map<string, Produit>; fermer: () => void; vider: () => void; enregistrer: (mode: 'codes' | 'qr') => Promise<Fin>
+  terminee: (r: Fin) => void
 }) {
   const [i, setI] = useState(0)
   const [qr, setQr] = useState(false)
@@ -509,7 +566,9 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
   useEcranAllume()
 
   async function terminer(mode: 'codes' | 'qr') {
-    setEnCours(true); const r = await enregistrer(mode); setEnCours(false); setFin(r)
+    setEnCours(true); const r = await enregistrer(mode); setEnCours(false)
+    // enregistrée → retour direct au panier suivant ; en cas d'erreur on reste ici pour ne rien perdre
+    if (r.erreur) setFin(r); else terminee(r)
   }
 
   if (fin) return (
@@ -521,7 +580,8 @@ function ModeCaisse({ panier, produits, fermer, vider, enregistrer }: {
         ? <p className="text-sm text-corail">⚠️ Vente non enregistrée dans l'historique : {fin.erreur}</p>
         : <p className="text-sm text-green-700">Vente enregistrée dans l'historique.</p>}
       {fin.collection && <p className={`text-sm ${fin.collection.startsWith('⚠️') ? 'text-corail' : 'text-havane font-medium'}`}>{fin.collection}</p>}
-      <button onClick={vider} className="w-full max-w-sm rounded-xl bg-havane text-white font-semibold py-4">Vider le panier</button>
+      <button onClick={() => { setFin(null); terminer(qr ? 'qr' : 'codes') }} className="w-full max-w-sm rounded-xl bg-havane text-white font-semibold py-4">Réessayer l'enregistrement</button>
+      <button onClick={vider} className="w-full max-w-sm rounded-xl border border-gray-300 font-semibold py-3.5">Vider sans enregistrer</button>
       <button onClick={fermer} className="w-full max-w-sm rounded-xl border border-gray-300 font-semibold py-3.5">Garder le panier</button>
     </div>
   )
