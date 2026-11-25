@@ -32,6 +32,23 @@ const lireMontant = (txt: string | null): number | null => {
   const n = Number(txt.replace(/\s/g, '').replace(',', '.').replace('€', ''))
   return isNaN(n) || n < 0 ? NaN : Math.round(n * 100) / 100
 }
+// Santons : vendus à la pastille de couleur (une fiche caisse par couleur), prix tapé à la main par la vendeuse.
+const SANTONS = [
+  { code: '3100000000066', taille: 'S', couleur: 'Vert', fond: '#2e9e46', texte: '#fff' },
+  { code: '3100000000097', taille: 'SP', couleur: 'Bleu foncé', fond: '#1b2f7a', texte: '#fff' },
+  { code: '3100000008895', taille: 'AA', couleur: 'Bleu', fond: '#2f6fd0', texte: '#fff' },
+  { code: '3100000000134', taille: 'M', couleur: 'Bleu clair', fond: '#8ecdf5', texte: '#23180D' },
+  { code: '3100000000127', taille: 'DSP', couleur: 'Noir', fond: '#111111', texte: '#fff' },
+  { code: '3100000000073', taille: 'A', couleur: 'Blanc', fond: '#ffffff', texte: '#23180D' },
+  { code: '3100000000103', taille: 'D', couleur: 'Jaune', fond: '#f5d000', texte: '#23180D' },
+  { code: '3100000000158', taille: 'O', couleur: 'Orange', fond: '#f28c28', texte: '#fff' },
+  { code: '3100000000080', taille: 'SSP', couleur: 'Rouge', fond: '#d62828', texte: '#fff' },
+  { code: '3100000000110', taille: 'DD', couleur: 'Marron', fond: '#7b4a26', texte: '#fff' },
+]
+const santonDe = (code: string) => SANTONS.find(x => x.code === code)
+// Ligne d'une vente : prix facultatif = prix tapé à la main (santons) ; deux lignes du même code à des prix différents restent séparées
+type LigneMarche = { code: string; qte: number; prix?: number }
+const cleLigne = (l: { code: string; prix?: number }) => l.code + '|' + (l.prix ?? '')
 const heure = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
 
 /* ---------- Articles (avec copie sur le téléphone pour marcher sans réseau) ---------- */
@@ -321,7 +338,8 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
   fermer: () => void; valider: (v: VenteMarche) => Promise<void>
 }) {
   const cle = 'cd_marche_panier_' + marche.id
-  const [lignes, setLignes] = useState<{ code: string; qte: number }[]>(() => lireJson(cle, []))
+  const [lignes, setLignes] = useState<LigneMarche[]>(() => lireJson(cle, []))
+  const [santon, setSanton] = useState(false)
   const [scan, setScan] = useState(false)
   const [dernier, setDernier] = useState<string | null>(null)
   const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
@@ -332,23 +350,31 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
   const [enCours, setEnCours] = useState(false)
   useEffect(() => { ecrireJson(cle, lignes) }, [lignes, cle])
 
-  const prixDe = (code: string) => prod.produits.get(code)?.prix || 0
-  const total = Math.round(lignes.reduce((s, l) => s + prixDe(l.code) * l.qte, 0) * 100) / 100
+  const prixDe = (l: LigneMarche) => l.prix ?? (prod.produits.get(l.code)?.prix || 0)
+  const nomLigne = (l: LigneMarche) => { const sa = santonDe(l.code); return sa ? `Santon ${sa.taille} · ${sa.couleur}` : nomProduit(prod.produits.get(l.code)) }
+  const total = Math.round(lignes.reduce((s, l) => s + prixDe(l) * l.qte, 0) * 100) / 100
   const nb = lignes.reduce((s, l) => s + l.qte, 0)
 
   function flash(texte: string, ok: boolean) { setMessage({ texte, ok }); window.setTimeout(() => setMessage(m => m?.texte === texte ? null : m), 2500) }
-  function definir(code: string, q: number) {
+  // k = clé de ligne (code|prix)
+  function definir(k: string, q: number) {
     setLignes(ls => {
-      const ex = ls.some(l => l.code === code)
-      return (ex ? ls.map(l => l.code === code ? { ...l, qte: q } : l) : q > 0 ? [...ls, { code, qte: q }] : ls).filter(l => l.qte > 0)
+      const ex = ls.some(l => cleLigne(l) === k)
+      const [code] = k.split('|')
+      return (ex ? ls.map(l => cleLigne(l) === k ? { ...l, qte: q } : l) : q > 0 ? [...ls, { code, qte: q }] : ls).filter(l => l.qte > 0)
     })
+  }
+  function ajouterSanton(code: string, prix: number) {
+    const k = cleLigne({ code, prix })
+    setLignes(ls => ls.some(l => cleLigne(l) === k) ? ls.map(l => cleLigne(l) === k ? { ...l, qte: l.qte + 1 } : l) : [...ls, { code, qte: 1, prix }])
+    const sa = santonDe(code); flash(`+1 Santon ${sa?.taille} · ${sa?.couleur} à ${eur(prix)}`, true)
   }
   function ajouter(codeBrut: string, format?: string) {
     const p = prod.trouver(codeBrut)
     if (!p) { flash('Code inconnu : ' + codeBrut + (format ? ' [' + format + ']' : '') + ' (pas dans les étiquettes)', false); return false }
-    const code = norm(p.code)
-    setLignes(ls => ls.some(l => l.code === code) ? ls.map(l => l.code === code ? { ...l, qte: l.qte + 1 } : l) : [...ls, { code, qte: 1 }])
-    setDernier(code); flash('+1 ' + nomProduit(p), true)
+    const code = norm(p.code), k = cleLigne({ code })
+    setLignes(ls => ls.some(l => cleLigne(l) === k) ? ls.map(l => cleLigne(l) === k ? { ...l, qte: l.qte + 1 } : l) : [...ls, { code, qte: 1 }])
+    setDernier(k); flash('+1 ' + nomProduit(p), true)
     return true
   }
   const resultats = useMemo(() => {
@@ -365,7 +391,7 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
     setEnCours(true)
     const v: VenteMarche = {
       id: crypto.randomUUID(), vendu_par: vendeur, vendu_le: new Date().toISOString(), client: 'Vente ' + numero,
-      lignes: lignes.map(l => { const p = prod.produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomProduit(p), prix: p?.prix || 0, qte: l.qte } }),
+      lignes: lignes.map(l => { const p = prod.produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomLigne(l), prix: prixDe(l), qte: l.qte } }),
       nb_articles: nb, total, mode: 'marche', marche_id: marche.id, paiement,
     }
     await valider(v)
@@ -415,7 +441,10 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
       <h1 className="text-lg font-semibold text-havane">Vente {numero}</h1>
 
       <div className="bg-white rounded-xl shadow-sm p-4 space-y-3">
-        <button onClick={() => { setDernier(null); setScan(true) }} className="w-full rounded-xl bg-laiton text-white font-semibold py-4 text-base">📷 Scanner</button>
+        <div className="flex gap-2">
+          <button onClick={() => { setDernier(null); setScan(true) }} className="flex-[2] rounded-xl bg-laiton text-white font-semibold py-4 text-base">📷 Scanner</button>
+          <button onClick={() => setSanton(true)} className="flex-1 rounded-xl border-2 border-laiton text-laiton font-semibold py-4 text-base">🎄 Santon</button>
+        </div>
         <div>
           <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Ou chercher : n°, marque, modèle…"
             className="w-full rounded-lg border border-gray-300 px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-havane" />
@@ -434,17 +463,20 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
         {lignes.length === 0 ? <p className="text-sm text-encre/50 text-center py-3">Aucun article.</p> : (
           <div className="divide-y">
             {lignes.map(l => {
-              const p = prod.produits.get(l.code)
+              const p = prod.produits.get(l.code), k = cleLigne(l), sa = santonDe(l.code)
               return (
-                <div key={l.code} className="py-2.5 flex items-center gap-2">
+                <div key={k} className="py-2.5 flex items-center gap-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{p?.num && <span className="text-laiton">N° {p.num} · </span>}{nomProduit(p)}</div>
-                    <div className="text-xs text-encre/50">{eur(p?.prix || 0)} l'unité</div>
+                    <div className="text-sm font-medium truncate flex items-center gap-1.5">
+                      {sa && <span className="inline-block w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0" style={{ background: sa.fond }} />}
+                      {!sa && p?.num && <span className="text-laiton">N° {p.num} · </span>}{nomLigne(l)}
+                    </div>
+                    <div className="text-xs text-encre/50">{eur(prixDe(l))} l'unité{l.prix !== undefined ? ' · prix tapé' : ''}</div>
                   </div>
-                  <button onClick={() => definir(l.code, l.qte - 1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">−</button>
-                  <ChampQte valeur={l.qte} onChange={q => definir(l.code, q)} />
-                  <button onClick={() => definir(l.code, l.qte + 1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">+</button>
-                  <div className="w-16 text-right text-sm font-semibold">{eur((p?.prix || 0) * l.qte)}</div>
+                  <button onClick={() => definir(k, l.qte - 1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">−</button>
+                  <ChampQte valeur={l.qte} onChange={q => definir(k, q)} />
+                  <button onClick={() => definir(k, l.qte + 1)} className="w-8 h-8 rounded-full border border-gray-300 text-lg leading-none">+</button>
+                  <div className="w-16 text-right text-sm font-semibold">{eur(prixDe(l) * l.qte)}</div>
                 </div>
               )
             })}
@@ -460,8 +492,55 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
       </div>
 
       {scan && <Scanner fermer={() => { setScan(false); setDernier(null) }} onCode={ajouter} message={message}
-        courant={dernier ? { produit: prod.produits.get(dernier), qte: lignes.find(l => l.code === dernier)?.qte ?? 0 } : null}
+        courant={dernier ? { produit: prod.produits.get(dernier.split('|')[0]), qte: lignes.find(l => cleLigne(l) === dernier)?.qte ?? 0 } : null}
         onQte={q => dernier && definir(dernier, q)} resume={{ articles: nb, total }} chercher={t => chercherProduits(prod.liste, t, 4)} />}
+
+      {santon && <ChoixSanton fermer={() => setSanton(false)} prixListe={c => prod.produits.get(c)?.prix}
+        ajouter={(c, px) => { ajouterSanton(c, px); setSanton(false) }} />}
+    </div>
+  )
+}
+
+/* ---------- Santon : on touche la couleur de la pastille, on tape le prix ---------- */
+function ChoixSanton({ fermer, ajouter, prixListe }: { fermer: () => void; ajouter: (code: string, prix: number) => void; prixListe: (code: string) => number | undefined }) {
+  const [choix, setChoix] = useState<typeof SANTONS[number] | null>(null)
+  const [prix, setPrix] = useState('')
+  const montant = lireMontant(prix)
+  const ok = montant !== null && !isNaN(montant) && montant > 0
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={fermer}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-4" onClick={e => e.stopPropagation()}
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
+        <div className="flex justify-between items-center">
+          <h2 className="font-semibold text-havane">🎄 Santon {choix ? `· ${choix.taille} ${choix.couleur}` : ''}</h2>
+          <button onClick={fermer} className="text-encre/50 text-xl leading-none">✕</button>
+        </div>
+        {!choix ? (
+          <div className="grid grid-cols-2 gap-2">
+            {SANTONS.map(sa => (
+              <button key={sa.code} onClick={() => { setChoix(sa); setPrix('') }}
+                className="rounded-xl py-3 px-3 font-semibold border-2 border-gray-200 flex items-center gap-2 text-left"
+                style={{ background: sa.fond, color: sa.texte }}>
+                <span className="text-lg">{sa.taille}</span><span className="text-sm opacity-90">{sa.couleur}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="h-3 rounded-full border border-gray-200" style={{ background: choix.fond }} />
+            <label className="block text-sm text-encre/70">Prix du santon (€)</label>
+            <input autoFocus value={prix} onChange={e => setPrix(e.target.value.replace(/[^\d,.]/g, ''))} inputMode="decimal"
+              placeholder={prixListe(choix.code) ? 'ex. ' + String(prixListe(choix.code)).replace('.', ',') : 'ex. 12,50'}
+              onKeyDown={e => { if (e.key === 'Enter' && ok) ajouter(choix.code, montant as number) }}
+              className="w-full rounded-xl border border-gray-300 px-3 py-3 text-2xl text-center focus:outline-none focus:ring-2 focus:ring-havane" />
+            <div className="flex gap-2">
+              <button onClick={() => setChoix(null)} className="flex-1 rounded-xl border border-gray-300 font-semibold py-3">← Couleur</button>
+              <button onClick={() => ok && ajouter(choix.code, montant as number)} disabled={!ok}
+                className="flex-[2] rounded-xl bg-havane text-white font-semibold py-3 disabled:opacity-40">Ajouter{ok ? ' ' + eur(montant as number) : ''}</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -476,7 +555,12 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
   const [erreur, setErreur] = useState<string | null>(null)
   const [enCours, setEnCours] = useState(false)
 
-  // tous les articles du marché, regroupés par code-barres
+  // tous les articles du marché, regroupés par code-barres (montants réellement encaissés, prix tapés compris)
+  const montants = useMemo(() => {
+    const t = new Map<string, number>()
+    for (const v of ventes) for (const l of v.lignes) t.set(l.code, (t.get(l.code) || 0) + l.prix * l.qte)
+    return t
+  }, [ventes])
   const { panier, total, produits } = useMemo(() => {
     const m = new Map<string, number>(), infos = new Map<string, LigneVente>()
     for (const v of ventes) for (const l of v.lignes) { m.set(l.code, (m.get(l.code) || 0) + l.qte); infos.set(l.code, l) }
@@ -530,8 +614,8 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
             const p = produits.get(l.code)
             return (
               <div key={l.code} className="flex justify-between text-sm py-1.5 gap-2">
-                <span className="truncate">{l.qte} × {p?.num && <span className="text-laiton">N° {p.num} · </span>}{nomProduit(p)}</span>
-                <span className="shrink-0">{eur((p?.prix || 0) * l.qte)}</span>
+                <span className="truncate">{l.qte} × {p?.num && <span className="text-laiton">N° {p.num} · </span>}{santonDe(l.code) ? `Santon ${santonDe(l.code)!.taille} · ${santonDe(l.code)!.couleur}` : nomProduit(p)}</span>
+                <span className="shrink-0">{eur(montants.get(l.code) ?? (p?.prix || 0) * l.qte)}</span>
               </div>
             )
           })}
