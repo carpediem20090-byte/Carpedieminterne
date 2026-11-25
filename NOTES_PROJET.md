@@ -109,6 +109,11 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
   2. appli cigares (catalogue clients, projet `ralnsnfdtkmqtvfubzml`) : chercher d'abord la fiche existante dans `cigars` (≈ 3 300 fiches, souvent archivées), sinon la créer ; relier le code-barres dans `cigar_barcodes` (barcode, cigar_id, num) ; mettre prix, `in_stock = true`, `is_archived = false`, `is_catalog_visible = true`. Ne jamais laisser « à vérifier » visible des clients (mettre vide).
 - Toujours la règle « pas sûr = vide ». Ne toucher à rien d'autre dans l'appli cigares.
 - Fait le 12 nov. : Esteli Club N°1 (463), N°5 (464), N°6 (466) ; n° 312 ajouté au code-barres du Cumpay Volcán Maduro.
+- **Import des listes produits Bimedia (25 nov.)** — PDF « ListeDesProduits » (cigares 758 lignes, Legami 443 lignes) :
+  - Cigares : 162 ajoutés dans `etiquettes_articles` (nom = désignation caisse, sans marque/origine → dans « Incomplets »), prix N° 121 (28 → 26 €) et N° 133 (18 → 16 €) corrigés et codes confirmés (`a_verifier = false`).
+  - 27 n° existaient déjà sous un autre code-barres (même cigare) : nouvelle ligne avec le code caisse + infos recopiées (marque, modèle, origine, force, compo…) ; les deux codes restent scannables, mais ces cigares apparaissent 2 fois dans la liste des étiquettes. Exceptions (n° identique, cigare différent) : 492, 521, 778.
+  - Legami : 403 articles ajoutés (rayon « Cadeaux & divers », marque Legami) ; 40 existaient déjà, prix identiques.
+  - Appli cigares (catalogue clients) **non mise à jour** pour ces 162 cigares.
 - Fait le 19 nov. : Davidoff Year of Sheep (édition 2027, pyramide 171 × 52) — n° 467, code 3100000025663, 62 €. Origine Rép. dom., compo Équateur / Équateur / Rép. dom. (1 vendeur + cohérent avec Year of the Horse 2026), force laissée vide, temps ≈ 75 min. Appli cigares : fiche existante « Year of the Sheep » complétée (était vide) + code-barres relié.
 
 ## Hors appli (fichiers faits par Claude)
