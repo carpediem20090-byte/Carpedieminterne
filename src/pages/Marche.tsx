@@ -46,6 +46,7 @@ const SANTONS = [
   { code: '3100000000110', taille: 'DD', couleur: 'Marron', fond: '#7b4a26', texte: '#fff' },
 ]
 const santonDe = (code: string) => SANTONS.find(x => x.code === code)
+// (prix des santons = prix de leur fiche caisse, comme tout article scanné)
 // Ligne d'une vente : prix facultatif = prix tapé à la main (santons) ; deux lignes du même code à des prix différents restent séparées
 type LigneMarche = { code: string; qte: number; prix?: number }
 const cleLigne = (l: { code: string; prix?: number }) => l.code + '|' + (l.prix ?? '')
@@ -364,11 +365,6 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
       return (ex ? ls.map(l => cleLigne(l) === k ? { ...l, qte: q } : l) : q > 0 ? [...ls, { code, qte: q }] : ls).filter(l => l.qte > 0)
     })
   }
-  function ajouterSanton(code: string, prix: number) {
-    const k = cleLigne({ code, prix })
-    setLignes(ls => ls.some(l => cleLigne(l) === k) ? ls.map(l => cleLigne(l) === k ? { ...l, qte: l.qte + 1 } : l) : [...ls, { code, qte: 1, prix }])
-    const sa = santonDe(code); flash(`+1 Santon ${sa?.taille} · ${sa?.couleur} à ${eur(prix)}`, true)
-  }
   function ajouter(codeBrut: string, format?: string) {
     const p = prod.trouver(codeBrut)
     if (!p) { flash('Code inconnu : ' + codeBrut + (format ? ' [' + format + ']' : '') + ' (pas dans les étiquettes)', false); return false }
@@ -496,50 +492,38 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
         onQte={q => dernier && definir(dernier, q)} resume={{ articles: nb, total }} chercher={t => chercherProduits(prod.liste, t, 4)} />}
 
       {santon && <ChoixSanton fermer={() => setSanton(false)} prixListe={c => prod.produits.get(c)?.prix}
-        ajouter={(c, px) => { ajouterSanton(c, px); setSanton(false) }} />}
+        ajouter={c => ajouter(c)} message={message} />}
     </div>
   )
 }
 
-/* ---------- Santon : on touche la couleur de la pastille, on tape le prix ---------- */
-function ChoixSanton({ fermer, ajouter, prixListe }: { fermer: () => void; ajouter: (code: string, prix: number) => void; prixListe: (code: string) => number | undefined }) {
-  const [choix, setChoix] = useState<typeof SANTONS[number] | null>(null)
-  const [prix, setPrix] = useState('')
-  const montant = lireMontant(prix)
-  const ok = montant !== null && !isNaN(montant) && montant > 0
+/* ---------- Santon : on touche la couleur de la pastille → ajouté au prix de la fiche caisse ---------- */
+function ChoixSanton({ fermer, ajouter, prixListe, message }: { fermer: () => void; ajouter: (code: string) => void; prixListe: (code: string) => number | undefined; message: { texte: string; ok: boolean } | null }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={fermer}>
       <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-4" onClick={e => e.stopPropagation()}
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         <div className="flex justify-between items-center">
-          <h2 className="font-semibold text-havane">🎄 Santon {choix ? `· ${choix.taille} ${choix.couleur}` : ''}</h2>
+          <h2 className="font-semibold text-havane">🎄 Santon : couleur de la pastille</h2>
           <button onClick={fermer} className="text-encre/50 text-xl leading-none">✕</button>
         </div>
-        {!choix ? (
-          <div className="grid grid-cols-2 gap-2">
-            {SANTONS.map(sa => (
-              <button key={sa.code} onClick={() => { setChoix(sa); setPrix('') }}
-                className="rounded-xl py-3 px-3 font-semibold border-2 border-gray-200 flex items-center gap-2 text-left"
+        <div className="grid grid-cols-2 gap-2">
+          {SANTONS.map(sa => {
+            const px = prixListe(sa.code)
+            return (
+              <button key={sa.code} onClick={() => ajouter(sa.code)} disabled={px === undefined}
+                className="rounded-xl py-3 px-3 font-semibold border-2 border-gray-200 flex items-center gap-2 text-left disabled:opacity-40"
                 style={{ background: sa.fond, color: sa.texte }}>
-                <span className="text-lg">{sa.taille}</span><span className="text-sm opacity-90">{sa.couleur}</span>
+                <span className="text-lg">{sa.taille}</span>
+                <span className="text-sm opacity-90 flex-1">{sa.couleur}</span>
+                <span className="text-sm">{px !== undefined ? eur(px) : '—'}</span>
               </button>
-            ))}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="h-3 rounded-full border border-gray-200" style={{ background: choix.fond }} />
-            <label className="block text-sm text-encre/70">Prix du santon (€)</label>
-            <input autoFocus value={prix} onChange={e => setPrix(e.target.value.replace(/[^\d,.]/g, ''))} inputMode="decimal"
-              placeholder={prixListe(choix.code) ? 'ex. ' + String(prixListe(choix.code)).replace('.', ',') : 'ex. 12,50'}
-              onKeyDown={e => { if (e.key === 'Enter' && ok) ajouter(choix.code, montant as number) }}
-              className="w-full rounded-xl border border-gray-300 px-3 py-3 text-2xl text-center focus:outline-none focus:ring-2 focus:ring-havane" />
-            <div className="flex gap-2">
-              <button onClick={() => setChoix(null)} className="flex-1 rounded-xl border border-gray-300 font-semibold py-3">← Couleur</button>
-              <button onClick={() => ok && ajouter(choix.code, montant as number)} disabled={!ok}
-                className="flex-[2] rounded-xl bg-havane text-white font-semibold py-3 disabled:opacity-40">Ajouter{ok ? ' ' + eur(montant as number) : ''}</button>
-            </div>
-          </div>
-        )}
+            )
+          })}
+        </div>
+        {message && <p className={`text-sm font-medium ${message.ok ? 'text-green-700' : 'text-corail'}`}>{message.texte}</p>}
+        <button onClick={fermer} className="w-full rounded-xl bg-havane text-white font-semibold py-3">Terminé</button>
+        <p className="text-xs text-encre/50">Prix = prix de la fiche caisse de la couleur. Touchez plusieurs fois pour plusieurs santons.</p>
       </div>
     </div>
   )
