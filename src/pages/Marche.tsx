@@ -48,6 +48,8 @@ const SANTONS = [
 const santonDe = (code: string) => SANTONS.find(x => x.code === code)
 // Santon « prix libre » : pas de fiche caisse → à taper à la main en caisse (famille Santon) au retour
 const SANTON_LIBRE = 'SANTON-LIBRE'
+// Remise accordée à l'encaissement : ligne au montant négatif dans la vente, à refaire en caisse au retour
+const REMISE = 'REMISE'
 // (prix des santons = prix de leur fiche caisse, comme tout article scanné)
 // Ligne d'une vente : prix facultatif = prix tapé à la main (santons) ; deux lignes du même code à des prix différents restent séparées
 type LigneMarche = { code: string; qte: number; prix?: number }
@@ -393,26 +395,58 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
     return out
   }, [recherche, prod.liste])
 
+  // Remise (en € ou en %) sur la vente
+  const [remiseTxt, setRemiseTxt] = useState('')
+  const [remiseMode, setRemiseMode] = useState<'eur' | 'pct'>('eur')
+  const remiseSaisie = lireMontant(remiseTxt || null)
+  const remise = remiseSaisie === null || isNaN(remiseSaisie) ? 0
+    : Math.min(total, Math.round((remiseMode === 'pct' ? total * Math.min(remiseSaisie, 100) / 100 : remiseSaisie) * 100) / 100)
+  const aPayer = Math.round((total - remise) * 100) / 100
+
   async function confirmer() {
     setEnCours(true)
     const v: VenteMarche = {
       id: crypto.randomUUID(), vendu_par: vendeur, vendu_le: new Date().toISOString(), client: 'Vente ' + numero,
-      lignes: lignes.map(l => { const p = prod.produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomLigne(l), prix: prixDe(l), qte: l.qte } }),
-      nb_articles: nb, total, mode: 'marche', marche_id: marche.id, paiement,
+      lignes: [
+        ...lignes.map(l => { const p = prod.produits.get(l.code); return { code: l.code, num: p?.num ?? null, nom: nomLigne(l), prix: prixDe(l), qte: l.qte } }),
+        ...(remise > 0 ? [{ code: REMISE, num: null, nom: remiseMode === 'pct' ? `Remise ${remiseSaisie} %` : 'Remise', prix: -remise, qte: 1 }] : []),
+      ],
+      nb_articles: nb, total: aPayer, mode: 'marche', marche_id: marche.id, paiement,
     }
     await valider(v)
     try { localStorage.removeItem(cle) } catch { /* rien */ }
     setEnCours(false)
   }
 
-  const rendu = Number(recu.replace(',', '.')) - total
+  const rendu = Number(recu.replace(',', '.')) - aPayer
 
   if (encaisser) return (
     <div className="space-y-4">
       <button onClick={() => setEncaisser(false)} className="text-sm text-havane underline">← Modifier la vente</button>
       <div className="bg-white rounded-xl shadow-sm p-5 text-center space-y-1">
         <div className="text-sm text-encre/60">{nb} article{nb > 1 ? 's' : ''} · à payer</div>
-        <div className="text-5xl font-bold text-havane">{eur(total)}</div>
+        {remise > 0 && <div className="text-sm text-encre/50 line-through">{eur(total)}</div>}
+        <div className="text-5xl font-bold text-havane">{eur(aPayer)}</div>
+        {remise > 0 && <div className="text-sm font-semibold text-corail">Remise −{eur(remise)}</div>}
+      </div>
+      <div className="bg-white rounded-xl shadow-sm p-3 space-y-2">
+        <label className="text-sm text-encre/60">🏷️ Remise (facultatif)</label>
+        <div className="flex gap-2">
+          <input value={remiseTxt} onChange={e => setRemiseTxt(e.target.value.replace(/[^\d,.]/g, ''))} inputMode="decimal"
+            placeholder={remiseMode === 'pct' ? 'ex. 10' : 'ex. 5'}
+            className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2.5 text-lg focus:outline-none focus:ring-2 focus:ring-havane" />
+          {(['eur', 'pct'] as const).map(m => (
+            <button key={m} onClick={() => setRemiseMode(m)}
+              className={`w-14 rounded-lg font-semibold border-2 ${remiseMode === m ? 'bg-havane text-white border-havane' : 'border-gray-200'}`}>{m === 'eur' ? '€' : '%'}</button>
+          ))}
+        </div>
+        {remiseMode === 'pct' && (
+          <div className="flex gap-1.5">
+            {[5, 10, 15, 20].map(n => (
+              <button key={n} onClick={() => setRemiseTxt(String(n))} className="flex-1 rounded-lg border border-gray-300 py-1.5 text-sm font-semibold">{n} %</button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="grid grid-cols-3 gap-2">
         {(Object.keys(PAIEMENTS) as Paiement[]).map(p => (
@@ -433,7 +467,7 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
         </div>
       )}
       <button onClick={confirmer} disabled={enCours} className="w-full rounded-xl bg-green-700 text-white font-semibold py-4 text-base disabled:opacity-50">
-        {enCours ? 'Enregistrement…' : '✓ Valider la vente'}
+        {enCours ? 'Enregistrement…' : '✓ Valider la vente · ' + eur(aPayer)}
       </button>
     </div>
   )
@@ -578,7 +612,7 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
   }, [ventes])
   const { panier, total, produits } = useMemo(() => {
     const m = new Map<string, number>(), infos = new Map<string, LigneVente>()
-    for (const v of ventes) for (const l of v.lignes) { if (l.code === SANTON_LIBRE) continue; m.set(l.code, (m.get(l.code) || 0) + l.qte); infos.set(l.code, l) }
+    for (const v of ventes) for (const l of v.lignes) { if (l.code === SANTON_LIBRE || l.code === REMISE) continue; m.set(l.code, (m.get(l.code) || 0) + l.qte); infos.set(l.code, l) }
     // Le QR utilise les infos enregistrées dans les ventes (prix au moment de la vente)
     const produits = new Map(prod.produits)
     for (const [code, l] of infos) if (!produits.has(code)) produits.set(code, { code, num: l.num, rayon: '', marque: l.nom, modele: null, prix: l.prix, a_verifier: false })
@@ -592,6 +626,9 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
     return [...t.entries()].sort((a, b) => a[0] - b[0])
   }, [ventes])
   const totalLibres = libres.reduce((s, [px, q]) => s + px * q, 0)
+  const remises = ventes.flatMap(v => v.lignes.filter(l => l.code === REMISE).map(l => ({ jour: jourDe(v.vendu_le), client: v.client, montant: -l.prix * l.qte, nom: l.nom })))
+  const totalRemises = remises.reduce((s, r) => s + r.montant, 0)
+  const totalQr = Math.round((total - totalLibres + totalRemises) * 100) / 100
   const nb = panier.lignes.reduce((s, l) => s + l.qte, 0)
 
   async function marquer() {
@@ -602,7 +639,7 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
     fini()
   }
 
-  if (qr) return <QrUnique panier={panier} produits={produits} total={total - totalLibres} enCours={enCours} retour={() => setQr(false)} fini={marquer} />
+  if (qr) return <QrUnique panier={panier} produits={produits} total={totalQr} enCours={enCours} retour={() => setQr(false)} fini={marquer} />
 
   return (
     <div className="space-y-4">
@@ -650,8 +687,24 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
           {libres.map(([px, q]) => (
             <div key={px} className="flex justify-between text-sm"><span>{q} × santon à {eur(px)}</span><span className="font-semibold">{eur(px * q)}</span></div>
           ))}
-          <p className="text-xs text-encre/60">Ils ne sont pas dans les QR codes : le QR fait {eur(total - totalLibres)}, + {eur(totalLibres)} à taper = {eur(total)}.</p>
+          <p className="text-xs text-encre/60">Ils ne sont pas dans les QR codes : à ajouter à la main.</p>
         </div>
+      )}
+
+      {remises.length > 0 && (
+        <div className="bg-corail/10 border border-corail rounded-xl p-4 space-y-1">
+          <h2 className="text-sm font-semibold">🏷️ Remises accordées — à faire en caisse</h2>
+          {remises.map((r, k) => (
+            <div key={k} className="flex justify-between text-sm gap-2"><span className="truncate capitalize">{nomJour(r.jour)} · {r.client} · {r.nom}</span><span className="font-semibold shrink-0">−{eur(r.montant)}</span></div>
+          ))}
+          <div className="flex justify-between text-sm font-semibold border-t pt-1"><span>Total des remises</span><span>−{eur(totalRemises)}</span></div>
+        </div>
+      )}
+
+      {(libres.length > 0 || remises.length > 0) && (
+        <p className="text-xs text-encre/60 text-center">
+          QR codes : {eur(totalQr)}{totalLibres > 0 && <> + santons prix libre {eur(totalLibres)}</>}{totalRemises > 0 && <> − remises {eur(totalRemises)}</>} = <b>{eur(total)}</b> encaissés sur le marché.
+        </p>
       )}
 
       <button onClick={() => setQr(true)} className="w-full rounded-xl bg-havane text-white font-semibold py-4 text-base">▦ Afficher les QR codes pour la caisse</button>
