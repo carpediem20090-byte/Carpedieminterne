@@ -112,7 +112,7 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - **Import des listes produits Bimedia (25 nov.)** — PDF « ListeDesProduits » (cigares 758 lignes, Legami 443 lignes) :
   - Cigares : 162 ajoutés dans `etiquettes_articles` (nom = désignation caisse, sans marque/origine → dans « Incomplets »), prix N° 121 (28 → 26 €) et N° 133 (18 → 16 €) corrigés et codes confirmés (`a_verifier = false`).
   - **Règle du patron : les listes caisse Bimedia sont LA référence** (codes-barres, n°, prix). Après l'import, les 28 cigares dont le code n'était pas dans la liste ont été supprimés (anciens codes ; leurs infos avaient été recopiées sur la ligne au code caisse), n° alignés sur la liste. Rayon Cigares = exactement les 758 lignes de la liste du 25 nov.
-  - N° en double dans la caisse (deux cigares différents, même n°) : 365, 492, 521, 778 — le patron vérifie avec Bimedia.
+  - N° en double dans la caisse (deux cigares différents, même n°) : 365, 521, 778 — le patron vérifie avec Bimedia.
   - Legami : 403 articles ajoutés (rayon « Cadeaux & divers », marque Legami) ; 40 existaient déjà, prix identiques.
   - Appli cigares (catalogue clients) **non mise à jour** pour ces 162 cigares.
 - Fait le 19 nov. : Davidoff Year of Sheep (édition 2027, pyramide 171 × 52) — n° 467, code 3100000025663, 62 €. Origine Rép. dom., compo Équateur / Équateur / Rép. dom. (1 vendeur + cohérent avec Year of the Horse 2026), force laissée vide, temps ≈ 75 min. Appli cigares : fiche existante « Year of the Sheep » complétée (était vide) + code-barres relié.
