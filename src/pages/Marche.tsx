@@ -46,6 +46,8 @@ const SANTONS = [
   { code: '3100000000110', taille: 'DD', couleur: 'Marron', fond: '#7b4a26', texte: '#fff' },
 ]
 const santonDe = (code: string) => SANTONS.find(x => x.code === code)
+// Santon « prix libre » : pas de fiche caisse → à taper à la main en caisse (famille Santon) au retour
+const SANTON_LIBRE = 'SANTON-LIBRE'
 // (prix des santons = prix de leur fiche caisse, comme tout article scanné)
 // Ligne d'une vente : prix facultatif = prix tapé à la main (santons) ; deux lignes du même code à des prix différents restent séparées
 type LigneMarche = { code: string; qte: number; prix?: number }
@@ -352,7 +354,15 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
   useEffect(() => { ecrireJson(cle, lignes) }, [lignes, cle])
 
   const prixDe = (l: LigneMarche) => l.prix ?? (prod.produits.get(l.code)?.prix || 0)
-  const nomLigne = (l: LigneMarche) => { const sa = santonDe(l.code); return sa ? `Santon ${sa.taille} · ${sa.couleur}` : nomProduit(prod.produits.get(l.code)) }
+  const nomLigne = (l: LigneMarche) => {
+    if (l.code === SANTON_LIBRE) return 'Santon · prix libre'
+    const sa = santonDe(l.code); return sa ? `Santon ${sa.taille} · ${sa.couleur}` : nomProduit(prod.produits.get(l.code))
+  }
+  function ajouterLibre(prix: number) {
+    const k = cleLigne({ code: SANTON_LIBRE, prix })
+    setLignes(ls => ls.some(l => cleLigne(l) === k) ? ls.map(l => cleLigne(l) === k ? { ...l, qte: l.qte + 1 } : l) : [...ls, { code: SANTON_LIBRE, qte: 1, prix }])
+    flash('+1 Santon prix libre à ' + eur(prix), true)
+  }
   const total = Math.round(lignes.reduce((s, l) => s + prixDe(l) * l.qte, 0) * 100) / 100
   const nb = lignes.reduce((s, l) => s + l.qte, 0)
 
@@ -492,13 +502,21 @@ function NouvelleVente({ prod, marche, vendeur, numero, fermer, valider }: {
         onQte={q => dernier && definir(dernier, q)} resume={{ articles: nb, total }} chercher={t => chercherProduits(prod.liste, t, 4)} />}
 
       {santon && <ChoixSanton fermer={() => setSanton(false)} prixListe={c => prod.produits.get(c)?.prix}
-        ajouter={c => ajouter(c)} message={message} />}
+        ajouter={c => ajouter(c)} ajouterLibre={ajouterLibre} message={message} />}
     </div>
   )
 }
 
 /* ---------- Santon : on touche la couleur de la pastille → ajouté au prix de la fiche caisse ---------- */
-function ChoixSanton({ fermer, ajouter, prixListe, message }: { fermer: () => void; ajouter: (code: string) => void; prixListe: (code: string) => number | undefined; message: { texte: string; ok: boolean } | null }) {
+function ChoixSanton({ fermer, ajouter, ajouterLibre, prixListe, message }: {
+  fermer: () => void; ajouter: (code: string) => void; ajouterLibre: (prix: number) => void
+  prixListe: (code: string) => number | undefined; message: { texte: string; ok: boolean } | null
+}) {
+  const [libre, setLibre] = useState(false)
+  const [prix, setPrix] = useState('')
+  const montant = lireMontant(prix)
+  const ok = montant !== null && !isNaN(montant) && montant > 0
+  function valider() { if (ok) { ajouterLibre(montant as number); setPrix('') } }
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center" onClick={fermer}>
       <div className="bg-white w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-4 space-y-4" onClick={e => e.stopPropagation()}
@@ -521,9 +539,22 @@ function ChoixSanton({ fermer, ajouter, prixListe, message }: { fermer: () => vo
             )
           })}
         </div>
+        {!libre ? (
+          <button onClick={() => setLibre(true)} className="w-full rounded-xl border-2 border-dashed border-laiton text-laiton font-semibold py-3">✏️ Santon à prix libre</button>
+        ) : (
+          <div className="rounded-xl border-2 border-laiton p-3 space-y-2">
+            <label className="block text-sm text-encre/70">✏️ Prix du santon (€)</label>
+            <div className="flex gap-2">
+              <input autoFocus value={prix} onChange={e => setPrix(e.target.value.replace(/[^\d,.]/g, ''))} inputMode="decimal" placeholder="ex. 18,50"
+                onKeyDown={e => { if (e.key === 'Enter') valider() }}
+                className="flex-1 min-w-0 rounded-lg border border-gray-300 px-3 py-2.5 text-xl text-center focus:outline-none focus:ring-2 focus:ring-havane" />
+              <button onClick={valider} disabled={!ok} className="rounded-lg bg-laiton text-white font-semibold px-4 disabled:opacity-40">Ajouter</button>
+            </div>
+          </div>
+        )}
         {message && <p className={`text-sm font-medium ${message.ok ? 'text-green-700' : 'text-corail'}`}>{message.texte}</p>}
         <button onClick={fermer} className="w-full rounded-xl bg-havane text-white font-semibold py-3">Terminé</button>
-        <p className="text-xs text-encre/50">Prix = prix de la fiche caisse de la couleur. Touchez plusieurs fois pour plusieurs santons.</p>
+        <p className="text-xs text-encre/50">Couleurs : prix de la fiche caisse. Prix libre : à taper à la main en caisse (famille Santon) au retour.</p>
       </div>
     </div>
   )
@@ -547,13 +578,20 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
   }, [ventes])
   const { panier, total, produits } = useMemo(() => {
     const m = new Map<string, number>(), infos = new Map<string, LigneVente>()
-    for (const v of ventes) for (const l of v.lignes) { m.set(l.code, (m.get(l.code) || 0) + l.qte); infos.set(l.code, l) }
+    for (const v of ventes) for (const l of v.lignes) { if (l.code === SANTON_LIBRE) continue; m.set(l.code, (m.get(l.code) || 0) + l.qte); infos.set(l.code, l) }
     // Le QR utilise les infos enregistrées dans les ventes (prix au moment de la vente)
     const produits = new Map(prod.produits)
     for (const [code, l] of infos) if (!produits.has(code)) produits.set(code, { code, num: l.num, rayon: '', marque: l.nom, modele: null, prix: l.prix, a_verifier: false })
     const panier: Panier = { id: marche.id, nom: marche.nom, lignes: [...m.entries()].map(([code, qte]) => ({ code, qte })), cree: Date.now() }
     return { panier, total: ventes.reduce((s, v) => s + Number(v.total), 0), produits }
   }, [ventes, prod.produits, marche])
+  // santons à prix libre : regroupés par prix, à taper à la main en caisse
+  const libres = useMemo(() => {
+    const t = new Map<number, number>()
+    for (const v of ventes) for (const l of v.lignes) if (l.code === SANTON_LIBRE) t.set(l.prix, (t.get(l.prix) || 0) + l.qte)
+    return [...t.entries()].sort((a, b) => a[0] - b[0])
+  }, [ventes])
+  const totalLibres = libres.reduce((s, [px, q]) => s + px * q, 0)
   const nb = panier.lignes.reduce((s, l) => s + l.qte, 0)
 
   async function marquer() {
@@ -564,7 +602,7 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
     fini()
   }
 
-  if (qr) return <QrUnique panier={panier} produits={produits} total={total} enCours={enCours} retour={() => setQr(false)} fini={marquer} />
+  if (qr) return <QrUnique panier={panier} produits={produits} total={total - totalLibres} enCours={enCours} retour={() => setQr(false)} fini={marquer} />
 
   return (
     <div className="space-y-4">
@@ -605,6 +643,16 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
           })}
         </div>
       </div>
+
+      {libres.length > 0 && (
+        <div className="bg-laiton/10 border border-laiton rounded-xl p-4 space-y-1">
+          <h2 className="text-sm font-semibold">🎄 Santons à prix libre — à taper à la main en caisse (famille Santon)</h2>
+          {libres.map(([px, q]) => (
+            <div key={px} className="flex justify-between text-sm"><span>{q} × santon à {eur(px)}</span><span className="font-semibold">{eur(px * q)}</span></div>
+          ))}
+          <p className="text-xs text-encre/60">Ils ne sont pas dans les QR codes : le QR fait {eur(total - totalLibres)}, + {eur(totalLibres)} à taper = {eur(total)}.</p>
+        </div>
+      )}
 
       <button onClick={() => setQr(true)} className="w-full rounded-xl bg-havane text-white font-semibold py-4 text-base">▦ Afficher les QR codes pour la caisse</button>
       <p className="text-xs text-encre/50 text-center">Bipez chaque QR à la douchette, puis « Terminé » : le marché sera marqué « passé en caisse » pour ne pas le biper deux fois.</p>
