@@ -5,6 +5,7 @@ import {
   type Article, etiquetteSVG, genererPDF, setArticlesColores, chargerPolices, codeOk, complet, manques, estCigare,
   FORCES, FCOL, RAYON_CIGARES,
 } from '../lib/etiquettes/dessin'
+import { Scanner, norm, upcEversA, sansZeros, chercherProduits, nomProduit, bip } from './PanierCave'
 import { lireCave, propositions, appliquer, NOMS_CHAMPS, type Proposition } from '../lib/etiquettes/cave'
 
 const RAYONS_DEFAUT = [RAYON_CIGARES, 'Accessoires cigares', 'Briquets', 'Pipes & tabac à pipe', 'Cigarette électronique', 'Cadeaux & divers', 'Enfants']
@@ -40,6 +41,11 @@ export default function Etiquettes() {
   const [pdfEnCours, setPdfEnCours] = useState(false)
   const [, setPolicesPretes] = useState(false)
   const [completer, setCompleter] = useState(false)
+  // scan des codes-barres : chaque article scanné est coché (+1 étiquette s'il l'était déjà)
+  const [scan, setScan] = useState(false)
+  const [dernierScan, setDernierScan] = useState<string | null>(null)
+  const [message, setMessage] = useState<{ texte: string; ok: boolean } | null>(null)
+  const [inconnus, setInconnus] = useState<string[]>([])
 
   async function charger() {
     setLoading(true); setErreur(null)
@@ -72,6 +78,35 @@ export default function Etiquettes() {
   const nbOk = duRayon.filter(complet).length
   const nbSel = Object.keys(sel).length
   const nbEtq = Object.values(sel).reduce((s, q) => s + (q || 1), 0)
+
+  const parCode = useMemo(() => {
+    const m = new Map<string, Article>()
+    for (const a of articles) { const c = norm(a.code); if (!c) continue; m.set(c, a); m.set('~' + sansZeros(c), a) }
+    return m
+  }, [articles])
+  // même recherche tolérante que le Panier cave (EAN, UPC-E, anciennes étiquettes Code 128…)
+  function trouver(codeBrut: string): Article | undefined {
+    const chiffres = String(codeBrut || '').replace(/\D/g, ''); if (!chiffres) return undefined
+    const essais = [norm(chiffres)]; const u = upcEversA(chiffres); if (u) essais.push(norm(u))
+    for (const c of essais) { const a = parCode.get(c); if (a) return a }
+    for (const c of essais) { const a = parCode.get('~' + sansZeros(c)); if (a) return a }
+    return undefined
+  }
+  function flash(texte: string, ok: boolean) { setMessage({ texte, ok }); window.setTimeout(() => setMessage(m => m?.texte === texte ? null : m), 2500) }
+  function ajouterScan(codeBrut: string): boolean {
+    const a = trouver(codeBrut)
+    if (!a) {
+      const c = String(codeBrut || '').replace(/\D/g, '') || String(codeBrut).trim()
+      setInconnus(l => l.includes(c) ? l : [...l, c])
+      flash('Code inconnu : ' + codeBrut + ' — vous pourrez créer la fiche après', false); return false
+    }
+    setSel(s => ({ ...s, [a.code]: Math.min(99, (s[a.code] || 0) + 1) }))
+    setDernierScan(a.code); flash('+1 étiquette ' + (a.num ? 'N° ' + a.num + ' · ' : '') + nomProduit(a), true)
+    return true
+  }
+  function definirNb(code: string, q: number) {
+    setSel(s => { const n = { ...s }; if (q > 0) n[code] = Math.min(99, q); else delete n[code]; return n })
+  }
 
   function cocher(code: string, oui: boolean) { setSel(s => { const n = { ...s }; if (oui) n[code] = n[code] || 1; else delete n[code]; return n }) }
   function aImprimer(): Article[] { const out: Article[] = []; for (const a of articles) { const q = sel[a.code]; if (q) for (let i = 0; i < q; i++) out.push(a) } return out }
@@ -117,7 +152,32 @@ export default function Etiquettes() {
         🔗 <b>Compléter depuis l'appli cigares</b> <span className="text-encre/60">— origine, force, temps, composition</span>
       </button>
 
-      <input value={recherche} onChange={e => { setRecherche(e.target.value); setAffiches(60) }} placeholder="Chercher : nom, n°, marque, code-barres…" className={champ} />
+      <button onClick={() => { setDernierScan(null); setScan(true) }} className="w-full rounded-xl bg-havane text-white py-3 font-semibold">
+        📷 Scanner les articles à étiqueter
+      </button>
+
+      <input value={recherche} onChange={e => { setRecherche(e.target.value); setAffiches(60) }} placeholder="Chercher (nom, n°, marque) ou biper à la douchette…" className={champ}
+        onKeyDown={e => {
+          // douchette branchée sur l'ordinateur : elle tape le code puis « Entrée » → l'article est coché directement
+          if (e.key !== 'Enter') return
+          const t = recherche.trim()
+          if (/^\d{6,}$/.test(t)) { e.preventDefault(); if (ajouterScan(t)) bip(); setRecherche('') }
+        }} />
+      {message && !scan && <p className={`text-sm rounded-lg px-3 py-2 text-white ${message.ok ? 'bg-green-700' : 'bg-corail'}`}>{message.texte}</p>}
+      {inconnus.length > 0 && (
+        <div className="rounded-xl border border-corail/40 bg-corail/5 p-3 space-y-2">
+          <div className="flex justify-between items-baseline gap-2">
+            <p className="text-sm font-medium text-corail">{inconnus.length} code{inconnus.length > 1 ? 's' : ''} scanné{inconnus.length > 1 ? 's' : ''} sans fiche</p>
+            <button onClick={() => setInconnus([])} className="text-xs underline text-encre/60">Effacer</button>
+          </div>
+          {inconnus.map(c => (
+            <div key={c} className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-mono">{c}</span>
+              <button onClick={() => { setInconnus(l => l.filter(x => x !== c)); setEdition({ ...vide(rayon || RAYON_CIGARES), code: c }) }} className="rounded-lg bg-havane text-white px-3 py-1 text-xs font-medium">Créer la fiche</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         <select value={rayon} onChange={e => { setRayon(e.target.value); setAffiches(60) }} className="rounded-full border border-gray-300 bg-white px-3 py-1.5 text-sm">
@@ -203,6 +263,18 @@ export default function Etiquettes() {
           onFermer={() => setEdition(null)}
           onEnregistrer={async (a, ancien) => { const e = await enregistrer(a, ancien); if (!e) setEdition(null); return e }}
           onSupprimer={async a => { const e = await supprimer(a); if (!e) setEdition(null); return e }}
+        />
+      )}
+      {scan && (
+        <Scanner
+          etiquettes
+          fermer={() => { setScan(false); setFiltre('selection'); setRecherche(''); setAffiches(60) }}
+          onCode={ajouterScan}
+          message={message}
+          courant={dernierScan ? { produit: articles.find(a => a.code === dernierScan), qte: sel[dernierScan] || 0 } : null}
+          onQte={q => dernierScan && definirNb(dernierScan, q)}
+          resume={{ articles: nbEtq, total: 0 }}
+          chercher={t => chercherProduits(articles, t, 4)}
         />
       )}
       {completer && (

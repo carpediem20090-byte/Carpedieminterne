@@ -348,10 +348,11 @@ export function ChampQte({ valeur, onChange, grand }: { valeur: number; onChange
 type Detecteur = { detect: (v: HTMLVideoElement) => Promise<{ rawValue: string; format?: string }[]> }
 // Tous les types de codes-barres courants : les anciennes étiquettes du magasin ne sont pas forcément en EAN.
 const FORMATS_NATIFS = ['ean_13', 'upc_a', 'ean_8', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar']
-export function Scanner({ fermer, onCode, message, courant, onQte, resume, chercher }: {
+export function Scanner({ fermer, onCode, message, courant, onQte, resume, chercher, etiquettes }: {
   fermer: () => void; onCode: (c: string, format?: string) => boolean; message: { texte: string; ok: boolean } | null
   courant: { produit?: Produit; qte: number } | null; onQte: (q: number) => void; resume: { articles: number; total: number }
   chercher?: (texte: string) => Produit[]
+  etiquettes?: boolean // mode « étiquettes à imprimer » : quantité = nombre d'étiquettes, pas de total en €
 }) {
   // saisie à la main quand le code-barres ne passe pas (n° ou nom), sans quitter le scanner
   const [saisie, setSaisie] = useState('')
@@ -455,12 +456,12 @@ export function Scanner({ fermer, onCode, message, courant, onQte, resume, cherc
                   className={`flex-1 rounded-lg py-2 text-sm font-semibold border ${courant.qte === n ? 'bg-havane text-white border-havane' : 'border-gray-300'}`}>{n}</button>
               ))}
             </div>
-            {courant.qte === 0 && <p className="text-xs text-corail text-center">Retiré du panier</p>}
+            {courant.qte === 0 && <p className="text-xs text-corail text-center">{etiquettes ? 'Retiré des étiquettes' : 'Retiré du panier'}</p>}
           </div>
         ) : (
           <p className="text-white/70 text-xs text-center">Tenez le téléphone à 10–15 cm, code-barres à plat dans le cadre.</p>
         )}
-        {courant && <p className="text-white/60 text-xs text-center">Réglez la quantité, puis scannez le cigare suivant.</p>}
+        {courant && <p className="text-white/60 text-xs text-center">{etiquettes ? 'Nombre d’étiquettes, puis scannez l’article suivant.' : 'Réglez la quantité, puis scannez le cigare suivant.'}</p>}
         {chercher && (
           <div className="space-y-1.5">
             {trouves.length > 0 && (
@@ -479,7 +480,7 @@ export function Scanner({ fermer, onCode, message, courant, onQte, resume, cherc
           </div>
         )}
         <button onClick={fermer} className="w-full rounded-xl bg-white text-havane font-semibold py-3.5">
-          Terminé{resume.articles ? ` · ${resume.articles} article${resume.articles > 1 ? 's' : ''} · ${eur(resume.total)}` : ''}
+          Terminé{resume.articles ? (etiquettes ? ` · ${resume.articles} étiquette${resume.articles > 1 ? 's' : ''}` : ` · ${resume.articles} article${resume.articles > 1 ? 's' : ''} · ${eur(resume.total)}`) : ''}
         </button>
       </div>
     </div>

@@ -58,6 +58,8 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - Sources de force (`force_source`) : `guide` (Cigaroscope, même cigare même format), `habanos` (classement officiel par marque/ligne), `web` (avis majoritaire de vendeurs, moins sûr), `gamme` (étendu depuis un autre format de la même gamme, moins sûr), `perso` (saisi dans l'appli), `cave` (repris de l'appli cigares).
 - N° 121 (Oliva World Cup) et N° 133 (La Flor Dominicana Reserva Toro) : code-barres lu sur photo floue → `a_verifier = true`, à scanner en caisse.
 
+- **Scan pour imprimer (26 nov. 2026)** : bouton « 📷 Scanner les articles à étiqueter » (même scanner que le Panier cave, réglage du nombre d'étiquettes sans sortir, saisie n°/nom). Chaque scan coche l'article (+1 étiquette s'il l'est déjà). À la fermeture, filtre « Cochés ». Douchette sur ordinateur : biper dans le champ de recherche (code + Entrée) coche l'article. Codes inconnus listés avec bouton « Créer la fiche » (code prérempli).
+
 ## Panier cave (16 nov. 2026, en production)
 
 - Page `/panier` (menu « Plus » → « 🛒 Panier cave »). Code : `src/pages/PanierCave.tsx`. Onglets **Panier** et **Historique**.
