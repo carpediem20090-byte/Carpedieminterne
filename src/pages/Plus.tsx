@@ -5,6 +5,7 @@ import { activerNotifications, desactiverNotifications, notificationsSupportees 
 
 const modules = [
   { to: '/panier', label: 'Panier cave (scan cigares)', icon: '🛒', patron: false },
+  { to: '/impressions', label: 'Impressions clients', icon: '🖨️', patron: false },
   { to: '/marche', label: 'Marchés (ventes hors tabac)', icon: '🧺', patron: false },
   { to: '/commandes', label: 'Commandes fournisseurs', icon: '🚚', patron: false },
   { to: '/fournisseurs', label: 'Fournisseurs', icon: '🏭', patron: false },

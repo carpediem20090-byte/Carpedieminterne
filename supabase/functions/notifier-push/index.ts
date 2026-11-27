@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
     let corps = ''
     let auteurId: string | null = null
     let reservePatrons = false
+    let url = '/'
 
     if (table === 'releve') {
       titre = 'Nouveau relevé'
@@ -63,6 +64,11 @@ Deno.serve(async (req) => {
       corps = record.type === 'conge' ? 'Demande de congé à valider' : 'Demande de repos à valider'
       auteurId = (record.demandee_par as string) ?? null
       reservePatrons = true
+    } else if (table === 'impressions_demandes') {
+      const nb = Array.isArray(record.fichiers) ? record.fichiers.length : 0
+      titre = '🖨️ Impression à faire'
+      corps = `${String(record.nom ?? 'Un client').slice(0, 60)} · ${nb} document${nb > 1 ? 's' : ''}`
+      url = '/impressions'
     } else {
       return new Response('table ignorée', { status: 200 })
     }
@@ -79,7 +85,7 @@ Deno.serve(async (req) => {
       `push_subscriptions?select=endpoint,p256dh,auth&profil_id=in.(${filtreIds})`
     )) as { endpoint: string; p256dh: string; auth: string }[]
 
-    const chargeNotif = JSON.stringify({ title: titre, body: corps, url: '/' })
+    const chargeNotif = JSON.stringify({ title: titre, body: corps, url })
 
     await Promise.all(
       (abonnements ?? []).map(async (a) => {

@@ -2,7 +2,7 @@
 
 > Fiche à lire en premier dans toute nouvelle conversation avec Claude.
 > Elle est mise à jour à chaque séance de travail.
-> Dernière mise à jour : 25 novembre 2026.
+> Dernière mise à jour : 27 novembre 2026.
 
 ## Où sont les choses
 
@@ -95,6 +95,18 @@ Relève · Colis clients (point relais : Mondial Relay, Chronopost, La Poste, DH
 - **Totaux à taper** (27 nov.) : au passage en caisse, carte « Après les QR, à taper à la main en caisse » = total famille Santon (santons prix libre), total famille Cadeau (cadeaux prix libre), remise, total du marché. Affichée dans le récap et sous le dernier QR (prop `apres` de `QrUnique`).
 - **Remise** (25 nov.) à l'écran « Encaisser » : montant en € ou en % (raccourcis 5/10/15/20 %), plafonnée au total ; le total de la vente enregistré = net (gains du jour et caisse espèces justes) ; la remise est une ligne `REMISE` au prix négatif dans la vente. Au passage en caisse : exclue des QR, listée « Remises accordées — à faire en caisse » (jour, vente, montant) + ligne de contrôle QR + prix libres − remises = total encaissé.
 - Retour au tabac : « Passer le marché en caisse » → récap par jour + articles regroupés → QR codes (même système que le Panier cave, découpage Auto) → « Terminé » marque le marché « passé en caisse » (plus de nouvelles ventes ni d'annulation).
+
+## Impressions clients (27 nov. 2026, branche `impressions`, pas encore en production)
+
+- But : fini les e-mails (spams, 4G faible, 50 fichiers à ouvrir, captures pleines de noir). Les clients envoient depuis une **page publique sans compte** `/imprimer` (QR code au comptoir, ou icône sur leur téléphone pour envoyer de chez eux). Pas de Wi-Fi client (choix du patron).
+- Code : `src/pages/Imprimer.tsx` (page client), `src/pages/Impressions.tsx` (onglet équipe, menu « Plus » → « 🖨️ Impressions clients »), `src/lib/impressions/` (`traitement.ts` nettoyage d'image, `envoi.ts`, `pdf.ts`).
+- Nettoyage **sur le téléphone du client avant l'envoi** (pages allégées ≈ 100-400 Ko, passent en 4G) : capture d'écran (PNG) → barre d'état et barre du bas coupées ; photo d'une feuille → feuille repérée et redressée ; bandes unies coupées ; mode « Noir et blanc » = fond blanchi par zones (ombres, fonds gris, grandes zones noires, mode sombre inversé). Choix automatique N&B / Couleur, modifiable par le client (Noir et blanc · Couleur · Sans retouche). PDF envoyés tels quels (15 Mo max).
+- Envoi avec reprises automatiques ; la demande n'apparaît côté équipe qu'une fois tous les fichiers arrivés. Prénom/téléphone retenus sur le téléphone du client (`cd_impression_client`).
+- Équipe : liste « À imprimer / Imprimées », aperçus, ⚠️ si page très chargée en encre (> 35 %), pivoter, ✂️ recadrer (curseurs), retirer une page, exemplaires → **un seul PDF A4** (pdf-lib) → « Imprimer / Partager » (feuille de partage du téléphone) ou « Ouvrir le PDF ». « Marquer imprimée », Supprimer. Bouton « 📄 Affiche QR code » (A4 pour le comptoir) et « 📷 Envoyer pour un client ».
+- Effacement : demandes + fichiers de plus de **7 jours** supprimés à l'ouverture de l'onglet.
+- Base : migration `0033_impressions.sql` — table `impressions_demandes`, bucket privé `impressions` (JPEG/PDF, 15 Mo), anonymes = dépôt seul (jamais de lecture), équipe = lecture/modif/suppression ; trigger `notifier_push_impressions` (notification « 🖨️ Impression à faire », ouvre `/impressions`). La fonction push déployée s'appelle **`smart-worker`** (le dossier du dépôt s'appelle `notifier-push`) : y ajouter la branche `impressions_demandes`.
+- Appli coupée en deux morceaux chargés à part (`src/App.tsx` → `pages/Imprimer` et `EspacePrive.tsx`) : la page client ne charge que ≈ 120 Ko. `vercel.json` ajouté (renvoi de toutes les adresses vers l'appli, nécessaire pour ouvrir `/imprimer` directement).
+- À faire : connaître le modèle d'imprimante (envoi automatique du PDF à l'adresse e-mail de l'imprimante ?) ; éventuellement « imprimé, à récupérer » visible par le client ; limiter les envois abusifs si besoin.
 
 ## Points de vigilance connus
 
