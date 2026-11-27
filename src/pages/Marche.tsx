@@ -683,7 +683,18 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
     fini()
   }
 
-  if (qr) return <QrUnique panier={panier} produits={produits} total={totalQr} enCours={enCours} retour={() => setQr(false)} fini={marquer} />
+  // Ce qu'il reste à taper à la main en caisse après les QR, en totaux par famille
+  const aTaper = (totalSantonsLibres > 0 || totalCadeaux > 0 || totalRemises > 0) ? (
+    <div className="w-full max-w-md bg-laiton/10 border-2 border-laiton rounded-xl p-3 text-left space-y-1.5">
+      <p className="text-sm font-semibold">Après les QR, à taper à la main en caisse :</p>
+      {totalSantonsLibres > 0 && <div className="flex justify-between text-base"><span>🎄 Famille <b>Santon</b></span><b>{eur(totalSantonsLibres)}</b></div>}
+      {totalCadeaux > 0 && <div className="flex justify-between text-base"><span>🎁 Famille <b>Cadeau</b></span><b>{eur(totalCadeaux)}</b></div>}
+      {totalRemises > 0 && <div className="flex justify-between text-base text-corail"><span>🏷️ Remise</span><b>−{eur(totalRemises)}</b></div>}
+      <div className="flex justify-between text-sm border-t border-laiton/40 pt-1.5"><span>Total du marché en caisse</span><b>{eur(total)}</b></div>
+    </div>
+  ) : null
+
+  if (qr) return <QrUnique panier={panier} produits={produits} total={totalQr} enCours={enCours} retour={() => setQr(false)} fini={marquer} apres={aTaper} />
 
   return (
     <div className="space-y-4">
@@ -760,6 +771,8 @@ function Recap({ marche, ventes, jours, prod, enAttente, fermer, fini }: {
           QR codes : {eur(totalQr)}{totalSantonsLibres > 0 && <> + santons prix libre {eur(totalSantonsLibres)}</>}{totalCadeaux > 0 && <> + cadeaux prix libre {eur(totalCadeaux)}</>}{totalRemises > 0 && <> − remises {eur(totalRemises)}</>} = <b>{eur(total)}</b> encaissés sur le marché.
         </p>
       )}
+
+      {aTaper && <div className="flex justify-center">{aTaper}</div>}
 
       <button onClick={() => setQr(true)} className="w-full rounded-xl bg-havane text-white font-semibold py-4 text-base">▦ Afficher les QR codes pour la caisse</button>
       <p className="text-xs text-encre/50 text-center">Bipez chaque QR à la douchette, puis « Terminé » : le marché sera marqué « passé en caisse » pour ne pas le biper deux fois.</p>

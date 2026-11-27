@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { eanBits, codeOk } from '../lib/etiquettes/dessin'
@@ -639,8 +639,9 @@ const SEPARATEUR = '\r'
 const CHOIX_QR = [-1, 10, 20, 30, 0] as const // -1 = auto, 0 = tout
 const MODULE_MIN = 5 // taille mini d'une case du QR, en px CSS (≈ 0,8 mm)
 const CLE_QR = 'cd_panier_par_qr'
-export function QrUnique({ panier, produits, retour, fini, total, enCours }: {
+export function QrUnique({ panier, produits, retour, fini, total, enCours, apres }: {
   panier: Panier; produits: Map<string, Produit>; retour: () => void; fini: () => void; total: number; enCours: boolean
+  apres?: ReactNode // rappel affiché sous le dernier QR (ex. montants à taper à la main en caisse)
 }) {
   const [page, setPage] = useState(0)
   const [parQr, setParQr] = useState<number>(() => { try { const r = localStorage.getItem(CLE_QR), v = Number(r); return r !== null && CHOIX_QR.includes(v as never) ? v : -1 } catch { return -1 } })
@@ -682,6 +683,7 @@ export function QrUnique({ panier, produits, retour, fini, total, enCours }: {
         {ici.length ? <QrCanvas texte={ici.join(SEPARATEUR)} /> : <p className="text-sm text-encre/50">Aucun article lisible.</p>}
         <p className="text-sm text-encre/70">Au total, la caisse doit afficher <b>{codes.length} article{codes.length > 1 ? 's' : ''}</b> pour <b>{eur(montant)}</b>.</p>
         {exclus.length > 0 && <p className="text-xs text-corail">⚠️ {exclus.length} article(s) avec un code à vérifier ne sont pas dans le QR : à passer à la main.</p>}
+        {apres && page === nb - 1 && apres}
         <p className="text-[10px] text-encre/30">affichage v4 · densité {window.devicePixelRatio}</p>
         <p className="text-xs text-encre/50">{ASTUCE}. Sur iPhone : désactivez aussi True Tone et Night Shift, et inclinez un peu le téléphone pour éviter les reflets. Si ça ne passe pas, choisissez moins d'articles par QR.</p>
       </div>
