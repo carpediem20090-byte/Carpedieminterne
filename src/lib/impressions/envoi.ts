@@ -15,6 +15,9 @@ export type FichierDemande = {
   nom: string
   largeur?: number
   hauteur?: number
+  a_traiter?: boolean // image reçue par mail, pas encore nettoyée
+  original?: string // pièce jointe d'origine (mail), pour changer de mode
+  illisible?: boolean // format que le navigateur ne sait pas ouvrir (ex. HEIC)
 }
 
 export type DemandeImpression = {
@@ -25,6 +28,7 @@ export type DemandeImpression = {
   copies: number
   fichiers: FichierDemande[]
   statut: 'nouvelle' | 'imprimee'
+  source: 'page' | 'mail'
   cree_le: string
   imprimee_le: string | null
   imprimee_par: string | null

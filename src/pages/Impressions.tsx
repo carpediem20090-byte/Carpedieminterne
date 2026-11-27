@@ -12,6 +12,8 @@ import {
   type FichierDemande,
 } from '../lib/impressions/envoi'
 import { afficheQrCode, construirePdf, AUCUN_RECADRAGE, type PagePourPdf, type Recadrage } from '../lib/impressions/pdf'
+import { traiterFichierImage, type ModeImpression } from '../lib/impressions/traitement'
+import ConnexionOutlook from '../components/ConnexionOutlook'
 
 const SEUIL_ENCRE = 0.35
 const URL_PUBLIQUE = 'https://carpedieminterne.vercel.app/imprimer'
@@ -35,7 +37,7 @@ async function nettoyerAnciennes() {
 }
 
 async function supprimerDemande(d: Pick<DemandeImpression, 'id' | 'fichiers'>) {
-  const chemins = d.fichiers.map((f) => f.chemin)
+  const chemins = d.fichiers.flatMap((f) => (f.original && f.original !== f.chemin ? [f.chemin, f.original] : [f.chemin]))
   if (chemins.length) await supabase.storage.from(BUCKET_IMPRESSIONS).remove(chemins)
   await supabase.from('impressions_demandes').delete().eq('id', d.id)
 }
@@ -108,6 +110,8 @@ export default function Impressions() {
         </Link>
       </div>
 
+      <ConnexionOutlook apresReleve={charger} />
+
       <div className="flex gap-2">
         {(['nouvelle', 'imprimee'] as const).map((v) => (
           <button
@@ -138,7 +142,10 @@ export default function Impressions() {
                 className="w-full text-left p-4 flex items-start justify-between gap-3"
               >
                 <div className="min-w-0">
-                  <div className="font-semibold">{d.nom}</div>
+                  <div className="font-semibold">
+                    {d.source === 'mail' && <span title="Reçu par mail">📧 </span>}
+                    {d.nom}
+                  </div>
                   <div className="text-sm text-encre/60">
                     {d.fichiers.length} document{d.fichiers.length > 1 ? 's' : ''}
                     {d.copies > 1 && <strong className="text-corail"> · {d.copies} exemplaires</strong>} ·{' '}
@@ -195,20 +202,100 @@ function DetailDemande({
   const [travail, setTravail] = useState<string | null>(null)
   const [erreur, setErreur] = useState<string | null>(null)
   const [recadrer, setRecadrer] = useState<number | null>(null)
+  const [fichiers, setFichiers] = useState<FichierDemande[]>(demande.fichiers)
+  const [versionUrls, setVersionUrls] = useState(0)
 
+  // Liens temporaires vers les fichiers (rechargés après un nettoyage).
   useEffect(() => {
     supabase.storage
       .from(BUCKET_IMPRESSIONS)
       .createSignedUrls(
-        demande.fichiers.map((f) => f.chemin),
+        fichiers.map((f) => f.chemin),
         3600
       )
       .then(({ data }) => {
         const r: Record<string, string> = {}
-        for (const x of data ?? []) if (x.path && x.signedUrl) r[x.path] = x.signedUrl
+        for (const x of data ?? []) if (x.path && x.signedUrl) r[x.path] = `${x.signedUrl}&v=${versionUrls}`
         setUrls(r)
       })
-  }, [demande.id])
+  }, [demande.id, versionUrls]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Nettoie une image (reçue par mail) et remplace la version imprimable. */
+  async function nettoyer(liste: FichierDemande[], i: number, mode?: ModeImpression): Promise<FichierDemande[]> {
+    const f = liste[i]
+    const source = f.original ?? f.chemin
+    const { data, error } = await supabase.storage.from(BUCKET_IMPRESSIONS).download(source)
+    if (error || !data) throw new Error(`Fichier ${i + 1} introuvable`)
+    const copie = [...liste]
+    try {
+      const page = await traiterFichierImage(new File([data], f.nom || source, { type: data.type }), mode)
+      URL.revokeObjectURL(page.url)
+      const chemin = `${demande.id}/${String(i + 1).padStart(2, '0')}.jpg`
+      const { error: e2 } = await supabase.storage
+        .from(BUCKET_IMPRESSIONS)
+        .upload(chemin, page.blob, { contentType: 'image/jpeg', upsert: true })
+      if (e2) throw e2
+      copie[i] = {
+        ...f,
+        chemin,
+        original: source,
+        mode: page.mode,
+        encre: Math.round(page.encre * 100) / 100,
+        largeur: page.largeur,
+        hauteur: page.hauteur,
+        a_traiter: false,
+        illisible: false,
+      }
+    } catch {
+      // Format que ce téléphone ne sait pas ouvrir (souvent une photo iPhone HEIC).
+      copie[i] = { ...f, original: source, a_traiter: false, illisible: true }
+    }
+    return copie
+  }
+
+  async function enregistrerFichiers(liste: FichierDemande[]) {
+    setFichiers(liste)
+    await supabase.from('impressions_demandes').update({ fichiers: liste }).eq('id', demande.id)
+    setVersionUrls((v) => v + 1)
+  }
+
+  // Images arrivées par mail : nettoyées une fois, à la première ouverture.
+  useEffect(() => {
+    const aFaire = fichiers.map((f, i) => (f.a_traiter ? i : -1)).filter((i) => i >= 0)
+    if (!aFaire.length) return
+    let annule = false
+    ;(async () => {
+      setTravail('Recadrage des pièces jointes…')
+      let liste = fichiers
+      try {
+        for (const i of aFaire) {
+          if (annule) return
+          liste = await nettoyer(liste, i)
+        }
+        if (!annule) await enregistrerFichiers(liste)
+      } catch (e) {
+        setErreur(e instanceof Error ? e.message : 'Nettoyage impossible')
+      } finally {
+        if (!annule) setTravail(null)
+      }
+    })()
+    return () => {
+      annule = true
+    }
+  }, [demande.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function changerMode(i: number, mode: ModeImpression) {
+    setTravail('Nouvelle version de la page…')
+    setErreur(null)
+    try {
+      await enregistrerFichiers(await nettoyer(fichiers, i, mode))
+      setPdf(null)
+    } catch (e) {
+      setErreur(e instanceof Error ? e.message : 'Impossible')
+    } finally {
+      setTravail(null)
+    }
+  }
 
   useEffect(() => () => {
     if (pdf) URL.revokeObjectURL(pdf.url)
@@ -224,10 +311,15 @@ function DetailDemande({
     setTravail('Préparation du PDF…')
     try {
       const pages: PagePourPdf[] = []
-      for (let i = 0; i < demande.fichiers.length; i++) {
-        const f = demande.fichiers[i]
+      const nonImprimables: string[] = []
+      for (let i = 0; i < fichiers.length; i++) {
+        const f = fichiers[i]
         const e = etats[i]
         if (e.retiree) continue
+        if (f.type === 'image' && (f.illisible || f.a_traiter || !/\.jpg$/i.test(f.chemin))) {
+          nonImprimables.push(f.nom || `page ${i + 1}`)
+          continue
+        }
         const { data, error } = await supabase.storage.from(BUCKET_IMPRESSIONS).download(f.chemin)
         if (error || !data) throw new Error(`Fichier ${i + 1} introuvable`)
         const octets = await data.arrayBuffer()
@@ -240,7 +332,7 @@ function DetailDemande({
       if (!pages.length) throw new Error('Toutes les pages sont retirées.')
       const r = await construirePdf(pages, copies)
       const blob = new Blob([r.octets as Uint8Array<ArrayBuffer>], { type: 'application/pdf' })
-      setPdf({ blob, url: URL.createObjectURL(blob), nbPages: r.nbPages, ignores: r.ignores })
+      setPdf({ blob, url: URL.createObjectURL(blob), nbPages: r.nbPages, ignores: [...r.ignores, ...nonImprimables] })
     } catch (e) {
       setErreur(e instanceof Error ? e.message : 'Préparation impossible')
     } finally {
@@ -286,7 +378,7 @@ function DetailDemande({
   async function supprimer() {
     if (!confirm(`Supprimer la demande de ${demande.nom} et ses fichiers ?`)) return
     setTravail('Suppression…')
-    await supprimerDemande(demande)
+    await supprimerDemande({ id: demande.id, fichiers })
     setTravail(null)
     apresSuppression()
   }
@@ -302,7 +394,7 @@ function DetailDemande({
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        {demande.fichiers.map((f, i) => (
+        {fichiers.map((f, i) => (
           <Vignette
             key={f.chemin}
             numero={i + 1}
@@ -312,6 +404,7 @@ function DetailDemande({
             pivoter={() => majEtat(i, { rotation: (etats[i].rotation + 90) % 360 })}
             basculer={() => majEtat(i, { retiree: !etats[i].retiree })}
             recadrer={() => setRecadrer(i)}
+            changerMode={travail ? undefined : (m) => changerMode(i, m)}
           />
         ))}
       </div>
@@ -358,7 +451,7 @@ function DetailDemande({
           </p>
           {pdf.ignores.length > 0 && (
             <p className="text-sm text-corail">
-              PDF protégé, à imprimer à part : {pdf.ignores.join(', ')}
+              Pas dans le PDF (protégé ou format illisible), à imprimer depuis le mail : {pdf.ignores.join(', ')}
             </p>
           )}
           <div className="grid grid-cols-2 gap-2">
@@ -397,9 +490,9 @@ function DetailDemande({
         </button>
       </div>
 
-      {recadrer !== null && urls[demande.fichiers[recadrer].chemin] && (
+      {recadrer !== null && urls[fichiers[recadrer].chemin] && (
         <FenetreRecadrage
-          url={urls[demande.fichiers[recadrer].chemin]}
+          url={urls[fichiers[recadrer].chemin]}
           rotation={etats[recadrer].rotation}
           valeur={etats[recadrer].recadrage ?? AUCUN_RECADRAGE}
           fermer={() => setRecadrer(null)}
@@ -421,6 +514,7 @@ function Vignette({
   pivoter,
   basculer,
   recadrer,
+  changerMode,
 }: {
   numero: number
   fichier: FichierDemande
@@ -429,6 +523,7 @@ function Vignette({
   pivoter: () => void
   basculer: () => void
   recadrer: () => void
+  changerMode?: (m: ModeImpression) => void
 }) {
   const rc = etat.recadrage
   const encre = fichier.encre ?? 0
@@ -439,6 +534,12 @@ function Vignette({
           <a href={url} target="_blank" rel="noreferrer" className="text-center text-sm text-havane">
             <div className="text-4xl">📄</div>PDF<br />(ouvrir)
           </a>
+        ) : fichier.illisible ? (
+          <span className="text-xs text-center text-corail px-2">
+            Format illisible ici (photo iPhone ?) : imprimez-la depuis le mail
+          </span>
+        ) : fichier.a_traiter ? (
+          <span className="text-xs text-encre/50">Recadrage…</span>
         ) : url ? (
           <div
             className="w-full h-full flex items-center justify-center"
@@ -460,6 +561,19 @@ function Vignette({
         )}
         <span className="absolute top-1 left-1 bg-white/90 rounded px-1.5 text-xs font-semibold">{numero}</span>
       </div>
+      {fichier.original && !fichier.illisible && changerMode && (
+        <div className="flex gap-1 text-[11px]">
+          {(['document', 'photo', 'original'] as ModeImpression[]).map((m) => (
+            <button
+              key={m}
+              onClick={() => fichier.mode !== m && changerMode(m)}
+              className={`flex-1 rounded px-1 py-1 ${fichier.mode === m ? 'bg-havane text-white' : 'bg-gray-100'}`}
+            >
+              {m === 'document' ? 'N&B' : m === 'photo' ? 'Couleur' : 'Brut'}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1 text-[11px]">
         {fichier.mode === 'document' && <span className="bg-gray-100 rounded px-1.5">N&B</span>}
         {fichier.mode === 'photo' && <span className="bg-laiton/15 rounded px-1.5">Couleur</span>}
